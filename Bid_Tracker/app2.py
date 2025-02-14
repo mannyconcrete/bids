@@ -880,6 +880,41 @@ def project_status_dashboard(spreadsheet):
             st.progress(progress)
             st.markdown(f"**Overall Progress:** {progress * 100:.1f}%")
 
+def format_sheet_name(name):
+    """Format string to be valid sheet name"""
+    # Remove invalid characters
+    invalid_chars = '[]:*?/\\'
+    for char in invalid_chars:
+        name = name.replace(char, '')
+    # Truncate to 31 characters (Google Sheets limit)
+    return name[:31]
+
+def get_recent_bids(worksheet, project_name=None):
+    """Get recent bids from Google Sheet"""
+    try:
+        data = worksheet.get_all_records()
+        if not data:
+            return []
+        
+        df = pd.DataFrame(data)
+        if project_name:
+            df = df[df['Project Name'] == project_name]
+        
+        # Save contractors and projects to session state
+        st.session_state.saved_contractors.update(df['Contractor'].unique())
+        for _, row in df.iterrows():
+            project_name = format_sheet_name(row['Project Name'])  # Format project name
+            if project_name not in st.session_state.saved_projects:
+                st.session_state.saved_projects[project_name] = {
+                    'owner': row['Project Owner'],
+                    'location': row['Location']
+                }
+        
+        return df.to_dict('records')[-5:]
+    except Exception as e:
+        st.error(f"Error loading bid history: {str(e)}")
+        return []
+
 def main():
     st.title("📊 Bid Tracker")
     

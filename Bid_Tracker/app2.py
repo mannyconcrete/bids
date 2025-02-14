@@ -1,8 +1,9 @@
 import streamlit as st
 from database import Database
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
+import time
 
 # Initialize database
 db = Database()
@@ -17,6 +18,15 @@ if 'profile' not in st.session_state:
     }
 if 'contractors' not in st.session_state:
     st.session_state.contractors = {}
+
+# Add caching for spreadsheet data
+if 'cache' not in st.session_state:
+    st.session_state.cache = {
+        'spreadsheet': None,
+        'last_refresh': None,
+        'materials': None,
+        'materials_last_refresh': None
+    }
 
 # Set page config for mobile
 st.set_page_config(
@@ -115,14 +125,29 @@ def get_or_create_spreadsheet(sheets_client):
 
 def get_spreadsheet(sheets_client):
     try:
+        # Use cached spreadsheet if available and less than 1 minute old
+        if (st.session_state.cache['spreadsheet'] and 
+            st.session_state.cache['last_refresh'] and 
+            datetime.now() - st.session_state.cache['last_refresh'] < timedelta(minutes=1)):
+            return st.session_state.cache['spreadsheet']
+            
         # Use the permanent spreadsheet ID
         SPREADSHEET_ID = "1_VpKh9Ha-43jUFeYyVljAmSCszay_ChD9jiWAbW_jEU"
         
         try:
+            time.sleep(1)  # Add delay to prevent quota issues
             spreadsheet = sheets_client.open_by_key(SPREADSHEET_ID)
+            
+            # Update cache
+            st.session_state.cache['spreadsheet'] = spreadsheet
+            st.session_state.cache['last_refresh'] = datetime.now()
+            
             return spreadsheet
         except Exception as e:
-            st.error(f"Error opening spreadsheet: {str(e)}")
+            if "429" in str(e):
+                st.error("Rate limit reached. Please wait a moment and try again.")
+            else:
+                st.error(f"Error opening spreadsheet: {str(e)}")
             return None
             
     except Exception as e:
@@ -220,6 +245,8 @@ def delete_row(spreadsheet, sheet_name, row_index):
 
 def save_to_sheets(spreadsheet, data, project_name):
     try:
+        time.sleep(1)  # Add delay before saving
+        
         # Always save to Master Sheet
         master_sheet = spreadsheet.worksheet("Master Sheet")
         master_sheet.append_row([
@@ -236,14 +263,19 @@ def save_to_sheets(spreadsheet, data, project_name):
             data[10]  # Total
         ])
         
+        time.sleep(1)  # Add delay between operations
+        
         # Get or create project-specific sheet
         try:
             project_sheet = spreadsheet.worksheet(project_name)
         except:
+            time.sleep(1)  # Add delay before creating new sheet
             project_sheet = spreadsheet.add_worksheet(project_name, 1000, 20)
             headers = ["Date", "Contractor", "Location", "Unit Number",
                       "Material", "Unit", "Quantity", "Price", "Total"]
             project_sheet.append_row(headers)
+        
+        time.sleep(1)  # Add delay before final save
         
         # Format data for project sheet
         project_data = [
@@ -258,11 +290,18 @@ def save_to_sheets(spreadsheet, data, project_name):
             data[10]  # Total
         ]
         project_sheet.append_row(project_data)
-        st.success("Bid saved successfully to both Master Sheet and Project Sheet!")
+        
+        # Clear cache to force refresh
+        st.session_state.cache['spreadsheet'] = None
+        st.session_state.cache['materials'] = None
+        
+        st.success("Bid saved successfully!")
         
     except Exception as e:
-        st.error(f"Error saving bid: {str(e)}")
-        st.error("Data being saved: " + str(data))  # Debug info
+        if "429" in str(e):
+            st.error("Rate limit reached. Please wait a moment and try again.")
+        else:
+            st.error(f"Error saving bid: {str(e)}")
 
 def calculate_contractor_totals(data):
     contractor_totals = {}
@@ -295,20 +334,21 @@ def share_spreadsheet(drive_service, spreadsheet):
 
 def get_materials_from_sheet(spreadsheet):
     try:
-        # Try to get Materials sheet
-        try:
-            materials_sheet = spreadsheet.worksheet("Materials")
-        except:
-            # Create Materials sheet if it doesn't exist
-            materials_sheet = spreadsheet.add_worksheet("Materials", 1000, 2)
-            materials_sheet.append_row(["Material", "Unit"])
-            materials_sheet.append_row(["Concrete sidewalk 4\"", "SF"])
+        # Use cached materials if available and less than 5 minutes old
+        if (st.session_state.cache['materials'] and 
+            st.session_state.cache['materials_last_refresh'] and 
+            datetime.now() - st.session_state.cache['materials_last_refresh'] < timedelta(minutes=5)):
+            return st.session_state.cache['materials']
             
-        # Get all materials
+        time.sleep(1)  # Add delay to prevent quota issues
+        materials_sheet = spreadsheet.worksheet("Materials")
         materials_data = materials_sheet.get_all_records()
-        materials_dict = {row['Material']: row.get('Unit', 'SF') for row in materials_data if row['Material']}
-        return materials_dict
         
+        # Update cache
+        st.session_state.cache['materials'] = materials_data
+        st.session_state.cache['materials_last_refresh'] = datetime.now()
+        
+        return materials_data
     except Exception as e:
         st.error(f"Error getting materials: {str(e)}")
         return {}

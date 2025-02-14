@@ -228,6 +228,43 @@ def share_spreadsheet(drive_service, spreadsheet):
     except Exception as e:
         st.error(f"Error sharing spreadsheet: {str(e)}")
 
+def get_material_averages(spreadsheet):
+    try:
+        master_sheet = spreadsheet.worksheet("Master Sheet")
+        data = master_sheet.get_all_records()
+        
+        # Calculate averages by material
+        material_stats = {}
+        for row in data:
+            material = row['Material']
+            unit = row['Unit']
+            price = float(str(row['Price']).replace('$', '').replace(',', ''))
+            
+            if material not in material_stats:
+                material_stats[material] = {
+                    'units': set(),
+                    'prices': [],
+                    'total_price': 0,
+                    'count': 0
+                }
+            
+            material_stats[material]['units'].add(unit)
+            material_stats[material]['prices'].append(price)
+            material_stats[material]['total_price'] += price
+            material_stats[material]['count'] += 1
+        
+        # Calculate averages and most common unit
+        for material in material_stats:
+            stats = material_stats[material]
+            stats['avg_price'] = stats['total_price'] / stats['count']
+            stats['most_common_unit'] = max(stats['units'], key=lambda x: sum(1 for row in data 
+                                          if row['Material'] == material and row['Unit'] == x))
+            
+        return material_stats
+    except Exception as e:
+        st.error(f"Error calculating averages: {str(e)}")
+        return {}
+
 def main():
     # Debug secrets (you can remove this later)
     if st.secrets["gcp_service_account"]:
@@ -294,13 +331,15 @@ def main():
     elif page == "Bid Entry":
         st.markdown("### New Bid")
         
+        # Get material averages
+        material_stats = get_material_averages(spreadsheet)
+        
         # Project selection
         projects = db.get_projects()
         project_names = [p[0] for p in projects]
         selected_project = st.selectbox("Select Project", project_names)
         
         if selected_project:
-            # Contractor selection
             contractors = db.get_contractors()
             contractor_names = [c[0] for c in contractors]
             selected_contractor = st.selectbox("Select Contractor", contractor_names)
@@ -315,20 +354,49 @@ def main():
                     unit_number = st.text_input("Unit Number")
                     material = st.selectbox(
                         "Material",
-                        options=db.get_materials() + ["Add New Material"]
+                        options=list(material_stats.keys()) + ["Add New Material"]
                     )
                     if material == "Add New Material":
-                        material = st.text_input("New Material")
-                        if material:
-                            db.add_material(material)
+                        new_material = st.text_input("New Material")
+                        if new_material:
+                            material = new_material
+                            db.add_material(new_material)
                 
                 with col2:
-                    unit = st.selectbox("Unit", ["SF", "SY", "LF", "Unit"])
+                    # Auto-suggest unit based on material
+                    suggested_unit = material_stats.get(material, {}).get('most_common_unit', 'SF')
+                    unit = st.selectbox(
+                        "Unit",
+                        options=["SF", "SY", "LF", "Unit"],
+                        index=["SF", "SY", "LF", "Unit"].index(suggested_unit)
+                    )
+                    
                     quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
-                    price = st.number_input("Price per Unit", min_value=0.0, step=0.01)
+                    
+                    # Auto-suggest price based on material
+                    suggested_price = material_stats.get(material, {}).get('avg_price', 0.0)
+                    if suggested_price > 0:
+                        st.info(f"Average price for {material}: ${suggested_price:.2f} per {suggested_unit}")
+                    
+                    price = st.number_input(
+                        "Price per Unit",
+                        min_value=0.0,
+                        step=0.01,
+                        value=float(f"{suggested_price:.2f}")
+                    )
                 
                 total = quantity * price
                 st.markdown(f"### Total: ${total:,.2f}")
+                
+                # Show historical prices
+                if material in material_stats:
+                    with st.expander("View Price History"):
+                        stats = material_stats[material]
+                        st.write(f"Price Statistics for {material}:")
+                        st.write(f"Average: ${stats['avg_price']:.2f}")
+                        st.write(f"Lowest: ${min(stats['prices']):.2f}")
+                        st.write(f"Highest: ${max(stats['prices']):.2f}")
+                        st.write(f"Most common unit: {stats['most_common_unit']}")
                 
                 # Submit bid
                 if st.button("Submit Bid"):
@@ -336,7 +404,7 @@ def main():
                     data = [
                         date, selected_contractor,
                         selected_project, db.get_project_owner(selected_project),
-                        selected_contractor, location, unit_number,
+                        location, unit_number,
                         material, unit, quantity, price, total
                     ]
                     save_to_sheets(spreadsheet, data, selected_project)

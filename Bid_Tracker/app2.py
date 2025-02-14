@@ -414,12 +414,12 @@ def main():
                     # Auto-suggest unit based on material
                     unit_options = ["SF", "SY", "LF", "Unit"]
                     suggested_unit = material_stats.get(material, {}).get('most_common_unit', 'SF')
-                    default_index = 0  # Default to first option
+                    default_index = 0
                     
                     try:
                         default_index = unit_options.index(suggested_unit)
                     except ValueError:
-                        pass  # If not found, keep default index
+                        pass
                     
                     unit = st.selectbox(
                         "Unit",
@@ -450,8 +450,14 @@ def main():
                         stats = material_stats[material]
                         st.write(f"Price Statistics for {material}:")
                         st.write(f"Average: ${stats['avg_price']:.2f}")
-                        st.write(f"Lowest: ${min(stats['prices']):.2f}")
-                        st.write(f"Highest: ${max(stats['prices']):.2f}")
+                        
+                        # Only show min/max if there are prices
+                        if stats['prices']:
+                            st.write(f"Lowest: ${min(stats['prices']):.2f}")
+                            st.write(f"Highest: ${max(stats['prices']):.2f}")
+                        else:
+                            st.write("No price history available")
+                            
                         st.write(f"Most common unit: {stats['most_common_unit']}")
                 
                 # Submit bid

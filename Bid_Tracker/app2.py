@@ -170,7 +170,19 @@ def save_to_sheets(spreadsheet, data, project_name):
     try:
         # Always save to Master Sheet
         master_sheet = spreadsheet.worksheet("Master Sheet")
-        master_sheet.append_row(data)
+        master_sheet.append_row([
+            data[0],  # Date
+            data[1],  # Contractor
+            data[2],  # Project Name
+            data[3],  # Project Owner
+            data[4],  # Location
+            data[5],  # Unit Number
+            data[6],  # Material
+            data[7],  # Unit
+            data[8],  # Quantity
+            data[9],  # Price
+            data[10]  # Total
+        ])
         
         # Get or create project-specific sheet
         try:
@@ -185,19 +197,20 @@ def save_to_sheets(spreadsheet, data, project_name):
         project_data = [
             data[0],  # Date
             data[1],  # Contractor
-            data[5],  # Location
-            data[6],  # Unit Number
-            data[7],  # Material
-            data[8],  # Unit
-            data[9],  # Quantity
-            data[10], # Price
-            data[11]  # Total
+            data[4],  # Location
+            data[5],  # Unit Number
+            data[6],  # Material
+            data[7],  # Unit
+            data[8],  # Quantity
+            data[9],  # Price
+            data[10]  # Total
         ]
         project_sheet.append_row(project_data)
         st.success("Bid saved successfully to both Master Sheet and Project Sheet!")
         
     except Exception as e:
         st.error(f"Error saving bid: {str(e)}")
+        st.error("Data being saved: " + str(data))  # Debug info
 
 def calculate_contractor_totals(data):
     contractor_totals = {}
@@ -462,8 +475,12 @@ def main():
                 
                 # Submit bid
                 if st.button("Submit Bid"):
+                    if not material:  # Check if material is selected
+                        st.error("Please select or add a material")
+                        return
+                        
                     date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    data = [
+                    bid_data = [
                         date,                   # Date
                         selected_contractor,    # Contractor
                         selected_project,       # Project Name
@@ -476,8 +493,13 @@ def main():
                         price,                 # Price
                         total                  # Total
                     ]
-                    save_to_sheets(spreadsheet, data, selected_project)
-                    st.success("Bid saved successfully!")
+                    
+                    # Verify all data is present
+                    if all(str(x) != "" for x in bid_data):
+                        save_to_sheets(spreadsheet, bid_data, selected_project)
+                    else:
+                        st.error("Please fill in all fields")
+                        st.write("Missing fields:", [i for i, x in enumerate(bid_data) if str(x) == ""])
     
     elif page == "History":
         st.markdown("### Bid History")

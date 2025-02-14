@@ -77,9 +77,23 @@ def get_contractor_location(contractor_name):
 
 def get_google_services():
     try:
-        # Use credentials file directly
-        credentials = service_account.Credentials.from_service_account_file(
-            'credentials.json',
+        # Create credentials dict from environment variables
+        credentials_dict = {
+            "type": st.secrets["type"],
+            "project_id": st.secrets["project_id"],
+            "private_key_id": st.secrets["private_key_id"],
+            "private_key": st.secrets["private_key"],
+            "client_email": st.secrets["client_email"],
+            "client_id": st.secrets["client_id"],
+            "auth_uri": st.secrets["auth_uri"],
+            "token_uri": st.secrets["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["client_x509_cert_url"],
+            "universe_domain": st.secrets["universe_domain"]
+        }
+        
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_dict,
             scopes=SCOPES
         )
         
@@ -88,7 +102,7 @@ def get_google_services():
         return drive_service, sheets_client
     except Exception as e:
         st.error(f"Credentials Error: {str(e)}")
-        st.error("Please make sure your credentials.json file is properly formatted")
+        st.error("Please check Streamlit Cloud secrets configuration")
         return None, None
 
 def create_and_share_spreadsheet(drive_service, sheets_client):

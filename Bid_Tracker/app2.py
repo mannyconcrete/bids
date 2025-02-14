@@ -735,11 +735,14 @@ def project_tracking_dashboard(spreadsheet):
 
 def get_coordinates(address):
     try:
-        # Geocode the address
-        result = gmaps.geocode(address)
-        if result:
-            location = result[0]['geometry']['location']
-            return location['lat'], location['lng']
+        # Using OpenStreetMap Nominatim API (no key required)
+        url = f"https://nominatim.openstreetmap.org/search?q={address}&format=json&limit=1"
+        headers = {'User-Agent': 'BidTracker/1.0'}
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        
+        if data:
+            return float(data[0]['lat']), float(data[0]['lon'])
         return None, None
     except Exception as e:
         st.error(f"Error geocoding address: {str(e)}")
@@ -800,7 +803,7 @@ def project_status_dashboard(spreadsheet):
             
             if st.button("Add Location"):
                 if new_location:
-                    # Get coordinates from Google Maps
+                    # Get coordinates from OpenStreetMap
                     latitude, longitude = get_coordinates(new_location)
                     
                     if latitude and longitude:

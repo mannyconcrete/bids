@@ -557,6 +557,34 @@ def display_bid_history(spreadsheet, project_name):
         else:
             st.error(f"Error displaying bid history: {str(e)}")
 
+def create_new_project(spreadsheet, project_name, owner_name):
+    try:
+        # Format sheet name to include owner
+        sheet_name = f"{project_name} - {owner_name}"
+        
+        # Check if project already exists
+        try:
+            existing_sheet = spreadsheet.worksheet(sheet_name)
+            st.error(f"Project '{project_name}' already exists!")
+            return False
+        except:
+            # Create new project sheet
+            time.sleep(1)  # Add delay before creating sheet
+            project_sheet = spreadsheet.add_worksheet(sheet_name, 1000, 20)
+            headers = ["Date", "Contractor", "Location", "Unit Number",
+                      "Material", "Unit", "Quantity", "Price", "Total"]
+            project_sheet.append_row(headers)
+            
+            # Add to database
+            db.add_project(project_name, owner_name)
+            
+            st.success(f"Created new project: {project_name} for {owner_name}")
+            return True
+            
+    except Exception as e:
+        st.error(f"Error creating project: {str(e)}")
+        return False
+
 def main():
     st.title("📊 Bid Tracker")
     
@@ -571,19 +599,41 @@ def main():
         st.error("Could not connect to the bid tracking spreadsheet.")
         return
     
-    # Get materials list and stats
-    materials_data = get_materials_from_sheet(spreadsheet)
-    material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
-    material_stats = get_material_stats(spreadsheet)
-    
-    # Project selection
+    # Add "New Project" option to project selection
     projects = db.get_projects()
     project_names = [p[0] for p in projects]
-    selected_project = st.selectbox("Select Project", project_names)
+    project_choice = st.selectbox(
+        "Select Project",
+        options=["Create New Project"] + project_names
+    )
+    
+    if project_choice == "Create New Project":
+        st.markdown("### Create New Project")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            new_project_name = st.text_input("Project Name")
+        with col2:
+            new_project_owner = st.text_input("Project Owner")
+            
+        if st.button("Create Project"):
+            if new_project_name and new_project_owner:
+                if create_new_project(spreadsheet, new_project_name, new_project_owner):
+                    st.rerun()
+            else:
+                st.error("Please enter both project name and owner")
+        
+        st.markdown("---")
+    
+    selected_project = project_choice if project_choice != "Create New Project" else None
     
     if selected_project:
+        # Get project owner
+        project_owner = db.get_project_owner(selected_project)
+        st.info(f"Project Owner: {project_owner}")
+        
         # Display bid history for the selected project
-        display_bid_history(spreadsheet, selected_project)
+        display_bid_history(spreadsheet, f"{selected_project} - {project_owner}")
         
         # Rest of the bid entry form
         contractors = db.get_contractors()
@@ -600,7 +650,7 @@ def main():
                 # Material selection with option to add new
                 material_choice = st.selectbox(
                     "Material",
-                    options=sorted(material_list) + ["Add New Material"]
+                    options=sorted(project_names) + ["Add New Material"]
                 )
                 
                 if material_choice == "Add New Material":
@@ -621,6 +671,7 @@ def main():
             
             with col2:
                 # Get default unit from materials data
+                materials_data = get_materials_from_sheet(spreadsheet)
                 default_unit = next((m['Unit'] for m in materials_data if m['Material'] == material), 'SF')
                 
                 unit = st.selectbox(
@@ -632,6 +683,7 @@ def main():
                 quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
                 
                 # Auto-suggest price based on material
+                material_stats = get_material_stats(spreadsheet)
                 suggested_price = material_stats.get(material, {}).get('avg_price', 0.0)
                 if suggested_price > 0:
                     st.info(f"Average price for {material}: ${suggested_price:.2f} per {default_unit}")
@@ -670,21 +722,21 @@ def main():
                     
                 date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 bid_data = [
-                    date,                   # Date
-                    selected_contractor,    # Contractor
-                    selected_project,       # Project Name
-                    db.get_project_owner(selected_project),  # Project Owner
-                    location,              # Location
-                    unit_number,           # Unit Number
-                    material,              # Material
-                    unit,                  # Unit
-                    quantity,              # Quantity
-                    price,                 # Price
-                    total                  # Total
+                    date,
+                    selected_contractor,
+                    selected_project,
+                    project_owner,
+                    location,
+                    unit_number,
+                    material,
+                    unit,
+                    quantity,
+                    price,
+                    total
                 ]
                 
                 if all(str(x) != "" for x in bid_data):
-                    save_to_sheets(spreadsheet, bid_data, selected_project)
+                    save_to_sheets(spreadsheet, bid_data, f"{selected_project} - {project_owner}")
                 else:
                     st.error("Please fill in all fields")
 

@@ -4,10 +4,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import time
-import folium
-from streamlit_folium import folium_static
-import json
 from geopy.geocoders import Nominatim
+import json
 
 # Initialize database
 db = Database()

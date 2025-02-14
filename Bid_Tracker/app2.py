@@ -113,14 +113,56 @@ def get_or_create_spreadsheet(sheets_client):
         st.error(f"Error with spreadsheet: {str(e)}")
         return None
 
+def get_spreadsheet(sheets_client):
+    try:
+        # Check if spreadsheet ID is in session state
+        if 'spreadsheet_id' not in st.session_state:
+            st.session_state.spreadsheet_id = None
+            
+        # Spreadsheet ID input
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            spreadsheet_id = st.text_input(
+                "Enter Google Spreadsheet ID",
+                value=st.session_state.spreadsheet_id if st.session_state.spreadsheet_id else "",
+                help="Enter the ID from your Google Spreadsheet URL"
+            )
+        with col2:
+            if st.button("Connect"):
+                if spreadsheet_id:
+                    try:
+                        spreadsheet = sheets_client.open_by_key(spreadsheet_id)
+                        st.session_state.spreadsheet_id = spreadsheet_id
+                        st.success("Successfully connected to spreadsheet!")
+                        return spreadsheet
+                    except Exception as e:
+                        st.error(f"Error connecting to spreadsheet: {str(e)}")
+                        return None
+                else:
+                    st.error("Please enter a spreadsheet ID")
+                    return None
+                    
+        # If ID is in session state, try to open that spreadsheet
+        if st.session_state.spreadsheet_id:
+            try:
+                return sheets_client.open_by_key(st.session_state.spreadsheet_id)
+            except Exception as e:
+                st.error(f"Error opening spreadsheet: {str(e)}")
+                st.session_state.spreadsheet_id = None
+                return None
+                
+        return None
+        
+    except Exception as e:
+        st.error(f"Error with spreadsheet: {str(e)}")
+        return None
+
 def get_google_services():
     try:
-        # First, check if we can access secrets
         if 'gcp_service_account' not in st.secrets:
             st.error("No GCP service account secrets found")
             return None, None, None
             
-        # Create credentials dict from secrets
         credentials_dict = st.secrets["gcp_service_account"]
         
         credentials = service_account.Credentials.from_service_account_info(
@@ -131,11 +173,9 @@ def get_google_services():
         drive_service = build('drive', 'v3', credentials=credentials)
         sheets_client = gspread.authorize(credentials)
         
-        # Get or create the spreadsheet
-        spreadsheet = get_or_create_spreadsheet(sheets_client)
-        if not spreadsheet:
-            return None, None, None
-            
+        # Get spreadsheet using input ID
+        spreadsheet = get_spreadsheet(sheets_client)
+        
         return drive_service, sheets_client, spreadsheet
     except Exception as e:
         st.error(f"Credentials Error: {str(e)}")
@@ -361,8 +401,14 @@ def main():
     
     # Initialize Google services and get spreadsheet
     drive_service, sheets_client, spreadsheet = get_google_services()
-    if not drive_service or not sheets_client or not spreadsheet:
+    if not drive_service or not sheets_client:
         st.error("Failed to initialize Google services. Please check your credentials.")
+        return
+    
+    # Don't proceed if no spreadsheet is connected
+    if not spreadsheet:
+        st.warning("Please connect to a Google Spreadsheet to continue")
+        st.info("To find your spreadsheet ID: Open your Google Sheet → Share → Copy link → ID is the long string in the URL")
         return
     
     # Store spreadsheet ID in session state

@@ -765,24 +765,56 @@ def project_status_dashboard(spreadsheet):
         if project_key not in st.session_state.project_checklists:
             st.session_state.project_checklists[project_key] = {}
         
+        # Create columns for map and location management
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Display map with all locations
+            if st.session_state.project_locations[project_key]:
+                locations_df = pd.DataFrame([
+                    {
+                        'lat': loc.get('latitude', 40.0583),
+                        'lon': loc.get('longitude', -74.4057),
+                        'status': loc.get('status', 'Pending')
+                    }
+                    for loc in st.session_state.project_locations[project_key]
+                ])
+                st.map(locations_df)
+            else:
+                # Default map centered on New Jersey
+                st.map(pd.DataFrame({
+                    'lat': [40.0583],
+                    'lon': [-74.4057]
+                }))
+        
+        with col2:
+            # Add new location
+            st.markdown("### Add Location")
+            new_location = st.text_input("Location Name/Address")
+            col1, col2 = st.columns(2)
+            with col1:
+                latitude = st.number_input("Latitude", value=40.0583, format="%.4f")
+            with col2:
+                longitude = st.number_input("Longitude", value=-74.4057, format="%.4f")
+            
+            if st.button("Add Location"):
+                if new_location:
+                    st.session_state.project_locations[project_key].append({
+                        'address': new_location,
+                        'latitude': latitude,
+                        'longitude': longitude,
+                        'status': 'Pending'
+                    })
+                    st.success(f"Added location: {new_location}")
+                    st.rerun()
+        
         # Location list and checklists
         st.markdown("### Project Locations")
-        
-        # Add new location
-        st.markdown("#### Add New Location")
-        new_location = st.text_input("Location Name/Address")
-        if st.button("Add Location"):
-            if new_location:
-                st.session_state.project_locations[project_key].append({
-                    'address': new_location,
-                    'status': 'Pending'
-                })
-                st.success(f"Added location: {new_location}")
-                st.rerun()
-        
-        # Display existing locations
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
             with st.expander(f"📍 {location['address']}"):
+                # Location coordinates
+                st.markdown(f"**Coordinates:** {location.get('latitude', 40.0583):.4f}, {location.get('longitude', -74.4057):.4f}")
+                
                 # Status selection
                 status = st.selectbox(
                     "Status",

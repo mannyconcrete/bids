@@ -539,6 +539,16 @@ def project_tracking_dashboard(spreadsheet):
             
             total_bid = project_data['Total'].sum()
             st.write(f"Total Project Bid: ${total_bid:,.2f}")
+            
+            # Show bid history for selected project
+            st.subheader("Project Bid History")
+            recent_bids = get_recent_bids(worksheet, selected_project)
+            if recent_bids:
+                for bid in reversed(recent_bids):
+                    with st.expander(f"{bid['Date']} - {bid['Material']}"):
+                        st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
+                        st.write(f"Price: ${bid['Price']:.2f}")
+                        st.write(f"Total: ${bid['Total']:.2f}")
     else:
         st.info("No projects available for tracking")
 
@@ -566,22 +576,50 @@ def project_status_dashboard(spreadsheet):
     if data:
         df = pd.DataFrame(data)
         
-        st.subheader("Project Summary")
-        project_summary = df.groupby('Project Name')['Total'].sum().reset_index()
-        project_summary.columns = ['Project Name', 'Total Bid Amount']
-        st.dataframe(project_summary)
+        # Summary metrics
+        col1, col2, col3 = st.columns(3)
         
-        # Project count and total value
-        total_projects = len(df['Project Name'].unique())
-        total_value = df['Total'].sum()
-        
-        col1, col2 = st.columns(2)
         with col1:
+            total_projects = len(df['Project Name'].unique())
             st.metric("Total Projects", total_projects)
+            
         with col2:
+            total_value = df['Total'].sum()
             st.metric("Total Value", f"${total_value:,.2f}")
+            
+        with col3:
+            avg_project_value = total_value / total_projects if total_projects > 0 else 0
+            st.metric("Average Project Value", f"${avg_project_value:,.2f}")
+        
+        # Project summary table
+        st.subheader("Project Summary")
+        project_summary = df.groupby('Project Name').agg({
+            'Total': 'sum',
+            'Project Owner': 'first',
+            'Location': 'first'
+        }).reset_index()
+        
+        project_summary.columns = ['Project Name', 'Total Value', 'Project Owner', 'Location']
+        st.dataframe(project_summary.style.format({
+            'Total Value': '${:,.2f}'
+        }))
+        
+        # Materials breakdown
+        st.subheader("Materials Breakdown")
+        materials_summary = df.groupby('Material').agg({
+            'Quantity': 'sum',
+            'Unit': 'first',
+            'Total': 'sum'
+        }).reset_index()
+        
+        materials_summary.columns = ['Material', 'Total Quantity', 'Unit', 'Total Value']
+        st.dataframe(materials_summary.style.format({
+            'Total Value': '${:,.2f}',
+            'Total Quantity': '{:,.2f}'
+        }))
+        
     else:
-        st.info("No project status data available")
+        st.info("No project data available")
 
 def load_bid_history():
     """Load bid history from the database"""
@@ -591,6 +629,23 @@ def save_bid(bid_data):
     """Save bid to session state"""
     st.session_state.bid_history.append(bid_data)
 
+def get_recent_bids(worksheet, project_name=None):
+    """Get recent bids from Google Sheet"""
+    try:
+        data = worksheet.get_all_records()
+        if not data:
+            return []
+        
+        df = pd.DataFrame(data)
+        if project_name:
+            df = df[df['Project Name'] == project_name]
+        
+        # Convert to list of dicts and return last 5 entries
+        return df.to_dict('records')[-5:]
+    except Exception as e:
+        st.error(f"Error loading bid history: {str(e)}")
+        return []
+
 def bid_entry_page(spreadsheet):
     st.header("Bid Entry")
     
@@ -599,12 +654,13 @@ def bid_entry_page(spreadsheet):
     materials_data = materials_sheet.get_all_records()
     materials_list = [item.get('Material', '') for item in materials_data if item.get('Material')]
     
+    # Get master sheet
+    worksheet = spreadsheet.worksheet("Master Sheet")
+    
     # Create columns for form and history
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        worksheet = spreadsheet.worksheet("Master Sheet")
-        
         # Create the form
         with st.form("bid_entry_form"):
             date = st.date_input("Date", datetime.today())
@@ -631,24 +687,6 @@ def bid_entry_page(spreadsheet):
             submitted = st.form_submit_button("Submit Bid")
             
             if submitted:
-                # Prepare the bid data
-                bid_data = {
-                    "date": date.strftime("%Y-%m-%d"),
-                    "contractor": contractor,
-                    "project_name": project_name,
-                    "project_owner": project_owner,
-                    "location": location,
-                    "unit_number": unit_number,
-                    "material": material,
-                    "unit": unit,
-                    "quantity": quantity,
-                    "price": price,
-                    "total": total
-                }
-                
-                # Save to session state
-                save_bid(bid_data)
-                
                 # Save to Google Sheet
                 row_data = [
                     date.strftime("%Y-%m-%d"),
@@ -675,15 +713,20 @@ def bid_entry_page(spreadsheet):
     
     with col2:
         st.subheader("Recent Bids")
-        if st.session_state.bid_history:
-            for bid in reversed(st.session_state.bid_history[-5:]):  # Show last 5 bids
-                with st.expander(f"{bid['project_name']} - {bid['date']}"):
-                    st.write(f"Project Owner: {bid['project_owner']}")
-                    st.write(f"Location: {bid['location']}")
-                    st.write(f"Material: {bid['material']}")
-                    st.write(f"Quantity: {bid['quantity']} {bid['unit']}")
-                    st.write(f"Price: ${bid['price']:.2f}")
-                    st.write(f"Total: ${bid['total']:.2f}")
+        if project_name:
+            recent_bids = get_recent_bids(worksheet, project_name)
+        else:
+            recent_bids = get_recent_bids(worksheet)
+            
+        if recent_bids:
+            for bid in reversed(recent_bids):  # Show bids in reverse chronological order
+                with st.expander(f"{bid['Project Name']} - {bid['Date']}"):
+                    st.write(f"Project Owner: {bid['Project Owner']}")
+                    st.write(f"Location: {bid['Location']}")
+                    st.write(f"Material: {bid['Material']}")
+                    st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
+                    st.write(f"Price: ${bid['Price']:.2f}")
+                    st.write(f"Total: ${bid['Total']:.2f}")
         else:
             st.info("No bid history available")
 
@@ -696,13 +739,15 @@ def main():
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
         
-    # Add navigation
-    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking"])
+    # Add navigation with Project Status tab
+    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":
         bid_entry_page(spreadsheet)
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
+    elif page == "Project Status":
+        project_status_dashboard(spreadsheet)
 
 if __name__ == "__main__":
     main()

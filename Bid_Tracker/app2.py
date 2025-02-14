@@ -228,42 +228,76 @@ def share_spreadsheet(drive_service, spreadsheet):
     except Exception as e:
         st.error(f"Error sharing spreadsheet: {str(e)}")
 
+def get_materials_from_sheet(spreadsheet):
+    try:
+        # Try to get Materials sheet
+        try:
+            materials_sheet = spreadsheet.worksheet("Materials")
+        except:
+            # Create Materials sheet if it doesn't exist
+            materials_sheet = spreadsheet.add_worksheet("Materials", 1000, 2)
+            materials_sheet.append_row(["Material", "Unit"])
+            materials_sheet.append_row(["Concrete sidewalk 4\"", "SF"])
+            
+        # Get all materials
+        materials_data = materials_sheet.get_all_records()
+        materials_dict = {row['Material']: row.get('Unit', 'SF') for row in materials_data if row['Material']}
+        return materials_dict
+        
+    except Exception as e:
+        st.error(f"Error getting materials: {str(e)}")
+        return {}
+
 def get_material_averages(spreadsheet):
     try:
         master_sheet = spreadsheet.worksheet("Master Sheet")
         data = master_sheet.get_all_records()
+        materials_dict = get_materials_from_sheet(spreadsheet)
         
         # Calculate averages by material
         material_stats = {}
-        for row in data:
-            material = row['Material']
-            unit = row['Unit']
-            price = float(str(row['Price']).replace('$', '').replace(',', ''))
-            
-            if material not in material_stats:
-                material_stats[material] = {
-                    'units': set(),
-                    'prices': [],
-                    'total_price': 0,
-                    'count': 0
-                }
-            
-            material_stats[material]['units'].add(unit)
-            material_stats[material]['prices'].append(price)
-            material_stats[material]['total_price'] += price
-            material_stats[material]['count'] += 1
+        for material in materials_dict:
+            material_stats[material] = {
+                'units': set([materials_dict[material]]),
+                'prices': [],
+                'total_price': 0,
+                'count': 0,
+                'default_unit': materials_dict[material]
+            }
         
-        # Calculate averages and most common unit
+        # Add price data
+        for row in data:
+            material = str(row['Material']).strip()
+            if material in material_stats:
+                try:
+                    price = float(str(row['Price']).replace('$', '').replace(',', ''))
+                    material_stats[material]['prices'].append(price)
+                    material_stats[material]['total_price'] += price
+                    material_stats[material]['count'] += 1
+                except (ValueError, TypeError):
+                    continue
+        
+        # Calculate averages
         for material in material_stats:
             stats = material_stats[material]
-            stats['avg_price'] = stats['total_price'] / stats['count']
-            stats['most_common_unit'] = max(stats['units'], key=lambda x: sum(1 for row in data 
-                                          if row['Material'] == material and row['Unit'] == x))
+            if stats['count'] > 0:
+                stats['avg_price'] = stats['total_price'] / stats['count']
+            else:
+                stats['avg_price'] = 0.0
+            stats['most_common_unit'] = stats['default_unit']
             
         return material_stats
     except Exception as e:
         st.error(f"Error calculating averages: {str(e)}")
         return {}
+
+def add_new_material(spreadsheet, material_name, unit='SF'):
+    try:
+        materials_sheet = spreadsheet.worksheet("Materials")
+        materials_sheet.append_row([material_name, unit])
+        st.success(f"Added new material: {material_name}")
+    except Exception as e:
+        st.error(f"Error adding material: {str(e)}")
 
 def main():
     # Debug secrets (you can remove this later)
@@ -331,8 +365,11 @@ def main():
     elif page == "Bid Entry":
         st.markdown("### New Bid")
         
-        # Get material averages
+        # Get materials and averages
         material_stats = get_material_averages(spreadsheet)
+        
+        # Sort materials alphabetically
+        material_list = sorted(list(material_stats.keys()))
         
         # Project selection
         projects = db.get_projects()
@@ -351,18 +388,26 @@ def main():
                 # Bid details
                 col1, col2 = st.columns(2)
                 with col1:
-                    # Material selection first
-                    material = st.selectbox(
+                    # Material selection with option to add new
+                    material_choice = st.selectbox(
                         "Material",
-                        options=list(material_stats.keys()) + ["Add New Material"]
+                        options=material_list + ["Add New Material"]
                     )
-                    if material == "Add New Material":
-                        new_material = st.text_input("New Material")
-                        if new_material:
-                            material = new_material
-                            db.add_material(new_material)
                     
-                    # Unit number second
+                    if material_choice == "Add New Material":
+                        new_material = st.text_input("New Material Name")
+                        new_unit = st.selectbox(
+                            "Unit for New Material",
+                            options=["SF", "SY", "LF", "Unit"],
+                            key="new_material_unit"
+                        )
+                        if new_material and st.button("Add Material"):
+                            add_new_material(spreadsheet, new_material, new_unit)
+                            st.experimental_rerun()
+                        material = new_material if new_material else None
+                    else:
+                        material = material_choice
+                    
                     unit_number = st.text_input("Unit Number")
                 
                 with col2:

@@ -7,7 +7,7 @@ import time
 import folium
 from streamlit_folium import folium_static
 import json
-from geopy.geocoder import Nominatim
+from geopy.geocoders import Nominatim
 
 # Initialize database
 db = Database()
@@ -772,19 +772,16 @@ def project_status_dashboard(spreadsheet):
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            # Initialize map centered on New Jersey
-            m = folium.Map(location=[40.0583, -74.4057], zoom_start=8)
-            
-            # Add existing markers
-            for idx, loc in enumerate(st.session_state.project_locations[project_key]):
-                folium.Marker(
-                    loc['coords'],
-                    popup=loc['address'],
-                    tooltip=f"Location {idx + 1}"
-                ).add_to(m)
-            
-            # Display map
-            folium_static(m)
+            # Display map with all locations
+            if st.session_state.project_locations[project_key]:
+                map_data = pd.DataFrame(
+                    [loc['coords'] for loc in st.session_state.project_locations[project_key]],
+                    columns=['lat', 'lon']
+                )
+                st.map(map_data)
+            else:
+                # Default map centered on New Jersey
+                st.map(pd.DataFrame({'lat': [40.0583], 'lon': [-74.4057]}))
         
         with col2:
             # Add new location
@@ -887,8 +884,8 @@ def main():
         st.error("Could not connect to the bid tracking spreadsheet.")
         return
     
-    # Add navigation
-    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking"])
+    # Update navigation
+    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":
         st.markdown("### New Bid")
@@ -943,6 +940,8 @@ def main():
     
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
+    elif page == "Project Status":
+        project_status_dashboard(spreadsheet)
 
 if __name__ == "__main__":
     main()

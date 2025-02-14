@@ -168,10 +168,21 @@ def get_spreadsheet(sheets_client):
         return None
 
 def get_google_services():
-    """Initialize Google services using existing database connection"""
+    """Initialize Google services"""
     try:
-        # Get the existing spreadsheet connection from the database
-        return db.get_drive_service(), db.get_sheets_client(), db.get_spreadsheet()
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive.file",
+            ],
+        )
+        
+        client = gspread.authorize(credentials)
+        spreadsheet = client.open_by_key(st.secrets["spreadsheet_id"])
+        
+        # Return None for drive_service since we're not using it
+        return None, client, spreadsheet
     except Exception as e:
         st.error(f"Error connecting to Google services: {str(e)}")
         return None, None, None
@@ -797,16 +808,11 @@ def main():
     st.title("📊 Bid Tracker")
     
     # Initialize Google services and get spreadsheet
-    drive_service, sheets_client, spreadsheet = get_google_services()
-    if not drive_service or not sheets_client:
+    _, sheets_client, spreadsheet = get_google_services()
+    if not spreadsheet:
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
         
-    # Don't proceed if no spreadsheet is connected
-    if not spreadsheet:
-        st.error("Could not connect to the bid tracking spreadsheet.")
-        return
-    
     # Add navigation
     page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     

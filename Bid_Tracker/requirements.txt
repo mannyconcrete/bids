@@ -1,4 +1,7 @@
-pandas>=1.5.0
-requests>=2.31.0
-gspread>=5.12.0
-google-auth>=2.23.0
+streamlit
+pandas
+gspread
+google-auth
+folium
+streamlit-folium
+geopy

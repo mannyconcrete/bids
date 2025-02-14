@@ -484,38 +484,16 @@ def display_bid_history(spreadsheet, project_name):
     """Display bid history for a project"""
     try:
         sheet_name = format_sheet_name(project_name)
-        drive_service, sheets_service = get_google_services()
+        worksheet = spreadsheet.worksheet(sheet_name)
+        records = worksheet.get_all_records()
         
-        if not drive_service or not sheets_service:
-            st.error("Could not initialize Google services")
-            return
-        
-        # Get the spreadsheet ID
-        spreadsheet_id = spreadsheet.id
-        
-        # Get the data using the Sheets API
-        range_name = f"{sheet_name}!A:Z"  # Get all columns
-        result = sheets_service.spreadsheets().values().get(
-            spreadsheetId=spreadsheet_id,
-            range=range_name
-        ).execute()
-        
-        values = result.get('values', [])
-        if not values:
+        if records:
+            df = pd.DataFrame(records)
+            st.dataframe(df)
+        else:
             st.info("No bid history found for this project")
-            return
-            
-        # Convert to DataFrame
-        headers = values[0]
-        data = values[1:]
-        df = pd.DataFrame(data, columns=headers)
-        
-        # Display the DataFrame
-        st.dataframe(df)
-        
     except Exception as e:
-        st.error(f"Error accessing bid history: {str(e)}")
-        st.info("Please make sure the project has been created and has bid entries")
+        st.info("No bid history available for this project yet")
 
 def create_new_project(spreadsheet, project_name, owner_name):
     try:
@@ -842,13 +820,13 @@ def main():
     st.title("📊 Bid Tracker")
     
     # Initialize Google services and get spreadsheet
-    drive_service, sheets_service = get_google_services()
-    if not drive_service or not sheets_service:
+    drive_service, sheets_client, spreadsheet = get_google_services()
+    if not drive_service or not sheets_client:
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
         
     # Don't proceed if no spreadsheet is connected
-    if not drive_service or not sheets_service:
+    if not spreadsheet:
         st.error("Could not connect to the bid tracking spreadsheet.")
         return
     
@@ -859,9 +837,9 @@ def main():
         st.markdown("### New Bid")
         
         # Get materials list and stats
-        materials_data = get_materials_from_sheet(drive_service)
+        materials_data = get_materials_from_sheet(spreadsheet)
         material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
-        material_stats = get_material_stats(drive_service)
+        material_stats = get_material_stats(spreadsheet)
         
         # Add "New Project" option to project selection
         projects = db.get_projects()
@@ -882,7 +860,7 @@ def main():
                 
             if st.button("Create Project"):
                 if new_project_name and new_project_owner:
-                    if create_new_project(drive_service, new_project_name, new_project_owner):
+                    if create_new_project(spreadsheet, new_project_name, new_project_owner):
                         st.rerun()
                 else:
                     st.error("Please enter both project name and owner")
@@ -898,7 +876,7 @@ def main():
             
             # Display bid history for the selected project
             try:
-                display_bid_history(drive_service, selected_project)
+                display_bid_history(spreadsheet, selected_project)
             except Exception as e:
                 st.error(f"Error displaying bid history: {str(e)}")
             
@@ -906,9 +884,9 @@ def main():
             # ... (keep existing code) ...
     
     elif page == "Project Tracking":
-        project_tracking_dashboard(drive_service)
+        project_tracking_dashboard(spreadsheet)
     elif page == "Project Status":
-        project_status_dashboard(drive_service)
+        project_status_dashboard(spreadsheet)
 
 if __name__ == "__main__":
     main()

@@ -403,7 +403,7 @@ def main():
                         )
                         if new_material and st.button("Add Material"):
                             add_new_material(spreadsheet, new_material, new_unit)
-                            st.experimental_rerun()
+                            st.rerun()
                         material = new_material if new_material else None
                     else:
                         material = material_choice
@@ -477,6 +477,7 @@ def main():
                         total                  # Total
                     ]
                     save_to_sheets(spreadsheet, data, selected_project)
+                    st.success("Bid saved successfully!")
     
     elif page == "History":
         st.markdown("### Bid History")

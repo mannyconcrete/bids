@@ -459,7 +459,7 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
         st.error(f"Error adding material: {str(e)}")
         return False
 
-def display_bid_history(spreadsheet, project_name):
+def display_bid_history(spreadsheet, project_name, project_owner):
     try:
         time.sleep(1)  # Add delay to prevent quota issues
         project_sheet = spreadsheet.worksheet(project_name)
@@ -585,7 +585,7 @@ def create_new_project(spreadsheet, project_name, owner_name):
         st.error(f"Error creating project: {str(e)}")
         return False
 
-def project_tracking_dashboard():
+def project_tracking_dashboard(spreadsheet):
     st.markdown("## 📊 Project Tracking Dashboard")
     
     # Get all projects
@@ -780,7 +780,11 @@ def main():
             st.info(f"Project Owner: {project_owner}")
             
             # Display bid history for the selected project
-            display_bid_history(spreadsheet, selected_project, project_owner)
+            try:
+                sheet_name = format_sheet_name(selected_project, project_owner)
+                display_bid_history(spreadsheet, selected_project, project_owner)
+            except Exception as e:
+                st.error(f"Error displaying bid history: {str(e)}")
             
             # Bid entry form
             contractors = db.get_contractors()
@@ -871,7 +875,7 @@ def main():
                         st.error("Please fill in all fields")
     
     elif page == "Project Tracking":
-        project_tracking_dashboard()
+        project_tracking_dashboard(spreadsheet)
 
 if __name__ == "__main__":
     main()

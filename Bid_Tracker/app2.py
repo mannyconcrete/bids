@@ -332,6 +332,28 @@ def share_spreadsheet(drive_service, spreadsheet):
     except Exception as e:
         st.error(f"Error sharing spreadsheet: {str(e)}")
 
+def get_or_create_materials_sheet(spreadsheet):
+    try:
+        # Try to get Materials sheet
+        try:
+            materials_sheet = spreadsheet.worksheet("Materials")
+        except:
+            # Create Materials sheet if it doesn't exist
+            materials_sheet = spreadsheet.add_worksheet("Materials", 1000, 2)
+            materials_sheet.append_row(["Material", "Unit"])
+            # Add some default materials
+            default_materials = [
+                ["Concrete sidewalk 4\"", "SF"],
+                ["Concrete apron 6\"", "SF"],
+                ["Belgian block", "LF"],
+                ["Concrete curb", "LF"]
+            ]
+            materials_sheet.append_rows(default_materials)
+        return materials_sheet
+    except Exception as e:
+        st.error(f"Error with materials sheet: {str(e)}")
+        return None
+
 def get_materials_from_sheet(spreadsheet):
     try:
         # Use cached materials if available and less than 5 minutes old
@@ -341,7 +363,10 @@ def get_materials_from_sheet(spreadsheet):
             return st.session_state.cache['materials']
             
         time.sleep(1)  # Add delay to prevent quota issues
-        materials_sheet = spreadsheet.worksheet("Materials")
+        materials_sheet = get_or_create_materials_sheet(spreadsheet)
+        if not materials_sheet:
+            return {}
+            
         materials_data = materials_sheet.get_all_records()
         
         # Update cache
@@ -353,56 +378,76 @@ def get_materials_from_sheet(spreadsheet):
         st.error(f"Error getting materials: {str(e)}")
         return {}
 
-def get_material_averages(spreadsheet):
+def get_material_stats(spreadsheet):
     try:
         master_sheet = spreadsheet.worksheet("Master Sheet")
         data = master_sheet.get_all_records()
-        materials_dict = get_materials_from_sheet(spreadsheet)
         
         # Calculate averages by material
         material_stats = {}
-        for material in materials_dict:
-            material_stats[material] = {
-                'units': set([materials_dict[material]]),
-                'prices': [],
-                'total_price': 0,
-                'count': 0,
-                'default_unit': materials_dict[material]
-            }
-        
-        # Add price data
         for row in data:
             material = str(row['Material']).strip()
-            if material in material_stats:
-                try:
-                    price = float(str(row['Price']).replace('$', '').replace(',', ''))
-                    material_stats[material]['prices'].append(price)
-                    material_stats[material]['total_price'] += price
-                    material_stats[material]['count'] += 1
-                except (ValueError, TypeError):
-                    continue
+            if not material:
+                continue
+                
+            unit = row['Unit']
+            try:
+                price = float(str(row['Price']).replace('$', '').replace(',', ''))
+            except (ValueError, TypeError):
+                continue
+            
+            if material not in material_stats:
+                material_stats[material] = {
+                    'units': set([unit]),
+                    'prices': [price],
+                    'total_price': price,
+                    'count': 1,
+                    'default_unit': unit
+                }
+            else:
+                stats = material_stats[material]
+                stats['units'].add(unit)
+                stats['prices'].append(price)
+                stats['total_price'] += price
+                stats['count'] += 1
         
         # Calculate averages
         for material in material_stats:
             stats = material_stats[material]
-            if stats['count'] > 0:
-                stats['avg_price'] = stats['total_price'] / stats['count']
-            else:
-                stats['avg_price'] = 0.0
-            stats['most_common_unit'] = stats['default_unit']
+            stats['avg_price'] = stats['total_price'] / stats['count']
+            stats['most_common_unit'] = max(stats['units'], 
+                                          key=lambda x: sum(1 for row in data 
+                                          if row['Material'] == material and row['Unit'] == x))
             
         return material_stats
     except Exception as e:
-        st.error(f"Error calculating averages: {str(e)}")
+        st.error(f"Error calculating material stats: {str(e)}")
         return {}
 
 def add_new_material(spreadsheet, material_name, unit='SF'):
     try:
-        materials_sheet = spreadsheet.worksheet("Materials")
+        time.sleep(1)  # Add delay before operation
+        materials_sheet = get_or_create_materials_sheet(spreadsheet)
+        if not materials_sheet:
+            return False
+            
+        # Check if material already exists
+        materials_data = materials_sheet.get_all_records()
+        if any(row['Material'] == material_name for row in materials_data):
+            st.warning(f"Material '{material_name}' already exists")
+            return False
+            
+        # Add new material
         materials_sheet.append_row([material_name, unit])
+        
+        # Clear materials cache to force refresh
+        st.session_state.cache['materials'] = None
+        
         st.success(f"Added new material: {material_name}")
+        return True
     except Exception as e:
         st.error(f"Error adding material: {str(e)}")
+        return False
 
 def main():
     st.title("📊 Bid Tracker")
@@ -471,7 +516,7 @@ def main():
         st.markdown("### New Bid")
         
         # Get materials and averages
-        material_stats = get_material_averages(spreadsheet)
+        material_stats = get_material_stats(spreadsheet)
         
         # Sort materials alphabetically
         material_list = sorted(list(material_stats.keys()))

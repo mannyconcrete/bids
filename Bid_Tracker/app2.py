@@ -85,6 +85,9 @@ def get_google_services():
         # Create credentials dict from secrets
         credentials_dict = st.secrets["gcp_service_account"]
         
+        # Debug: Show service account email
+        st.info(f"Using service account: {credentials_dict['client_email']}")
+        
         credentials = service_account.Credentials.from_service_account_info(
             credentials_dict,
             scopes=SCOPES

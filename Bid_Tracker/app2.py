@@ -75,18 +75,53 @@ def save_contractor_profile(contractor_name, location):
 def get_contractor_location(contractor_name):
     return st.session_state.contractors.get(contractor_name, '')
 
+def get_or_create_spreadsheet(sheets_client):
+    SPREADSHEET_NAME = "Bid Results Tracker"
+    try:
+        # Try to find existing spreadsheet by name
+        spreadsheet_list = sheets_client.list_spreadsheet_files()
+        for spreadsheet in spreadsheet_list:
+            if spreadsheet['name'] == SPREADSHEET_NAME:
+                return sheets_client.open_by_key(spreadsheet['id'])
+        
+        # If not found, create new spreadsheet
+        spreadsheet = sheets_client.create(SPREADSHEET_NAME)
+        
+        # Set up Master Sheet
+        master_sheet = spreadsheet.sheet1
+        master_sheet.update_title("Master Sheet")
+        headers = ["Date", "Contractor", "Project Name", "Project Owner", 
+                  "Location", "Unit Number", "Material", "Unit", 
+                  "Quantity", "Price", "Total"]
+        master_sheet.append_row(headers)
+        
+        # Set up Materials Sheet
+        materials_sheet = spreadsheet.add_worksheet("Materials", 1000, 2)
+        materials_sheet.append_row(["Material", "Unit"])
+        
+        # Share with your email
+        spreadsheet.share(
+            'mannysconcretenj@gmail.com',
+            perm_type='user',
+            role='writer'
+        )
+        
+        st.success(f"Created new spreadsheet: {SPREADSHEET_NAME}")
+        return spreadsheet
+        
+    except Exception as e:
+        st.error(f"Error with spreadsheet: {str(e)}")
+        return None
+
 def get_google_services():
     try:
         # First, check if we can access secrets
         if 'gcp_service_account' not in st.secrets:
             st.error("No GCP service account secrets found")
-            return None, None
+            return None, None, None
             
         # Create credentials dict from secrets
         credentials_dict = st.secrets["gcp_service_account"]
-        
-        # Debug: Show service account email
-        st.info(f"Using service account: {credentials_dict['client_email']}")
         
         credentials = service_account.Credentials.from_service_account_info(
             credentials_dict,
@@ -95,11 +130,16 @@ def get_google_services():
         
         drive_service = build('drive', 'v3', credentials=credentials)
         sheets_client = gspread.authorize(credentials)
-        return drive_service, sheets_client
+        
+        # Get or create the spreadsheet
+        spreadsheet = get_or_create_spreadsheet(sheets_client)
+        if not spreadsheet:
+            return None, None, None
+            
+        return drive_service, sheets_client, spreadsheet
     except Exception as e:
         st.error(f"Credentials Error: {str(e)}")
-        st.error("Please check your secrets configuration")
-        return None, None
+        return None, None, None
 
 def create_and_share_spreadsheet(drive_service, sheets_client):
     try:
@@ -319,16 +359,15 @@ def main():
     
     st.title("📊 Bid Tracker")
     
-    # Initialize Google services
-    drive_service, sheets_client = get_google_services()
-    if not drive_service or not sheets_client:
+    # Initialize Google services and get spreadsheet
+    drive_service, sheets_client, spreadsheet = get_google_services()
+    if not drive_service or not sheets_client or not spreadsheet:
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
-
-    spreadsheet = create_and_share_spreadsheet(drive_service, sheets_client)
-    if not spreadsheet:
-        st.error("Failed to access or create spreadsheet.")
-        return
+    
+    # Store spreadsheet ID in session state
+    if 'spreadsheet_id' not in st.session_state:
+        st.session_state.spreadsheet_id = spreadsheet.id
     
     # Mobile-friendly navigation
     page = st.radio("Navigation", ["Projects", "Contractors", "Bid Entry", "History"])

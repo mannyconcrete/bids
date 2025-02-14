@@ -514,140 +514,33 @@ def create_new_project(spreadsheet, project_name, owner_name):
         return False
 
 def project_tracking_dashboard(spreadsheet):
-    st.markdown("## 📊 Project Tracking Dashboard")
+    st.header("Project Tracking")
     
-    # Get all projects
-    projects = db.get_projects()
-    if not projects:
-        st.info("No projects found")
-        return
+    worksheet = spreadsheet.worksheet("Master Sheet")
+    data = worksheet.get_all_records()
+    
+    if data:
+        df = pd.DataFrame(data)
         
-    # Summary metrics
-    total_projects = len(projects)
-    active_projects = total_projects  # You can add a status field later if needed
-    
-    # Display summary metrics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Projects", total_projects)
-    with col2:
-        st.metric("Active Projects", active_projects)
-    with col3:
-        st.metric("Completed Projects", total_projects - active_projects)
-    
-    st.markdown("---")
-    
-    # Project Overview
-    st.markdown("### Project Overview")
-    
-    # Initialize totals
-    project_data = []
-    
-    for project_name, owner in projects:
-        try:
-            sheet_name = format_sheet_name(project_name)
-            project_sheet = spreadsheet.worksheet(sheet_name)
-            bids = project_sheet.get_all_records()
-            
-            if not bids:
-                continue
-                
-            # Calculate project metrics
-            total_bids = len(bids)
-            total_value = sum(float(str(bid['Total']).replace('$', '').replace(',', '')) for bid in bids)
-            
-            # Get unique contractors
-            contractors = set(bid['Contractor'] for bid in bids)
-            
-            # Get latest bid date
-            latest_bid = max(bids, key=lambda x: x['Date'])
-            latest_date = latest_bid['Date']
-            
-            # Calculate contractor breakdown
-            contractor_totals = {}
-            for bid in bids:
-                contractor = bid['Contractor']
-                amount = float(str(bid['Total']).replace('$', '').replace(',', ''))
-                contractor_totals[contractor] = contractor_totals.get(contractor, 0) + amount
-            
-            # Find lowest bidder
-            lowest_bidder = min(contractor_totals.items(), key=lambda x: x[1])[0]
-            
-            project_data.append({
-                'Project': project_name,
-                'Owner': owner,
-                'Total Bids': total_bids,
-                'Total Value': total_value,
-                'Contractors': len(contractors),
-                'Latest Activity': latest_date,
-                'Lowest Bidder': lowest_bidder,
-                'Avg Bid': total_value / total_bids if total_bids > 0 else 0
-            })
-            
-        except Exception as e:
-            st.error(f"Error processing {project_name}: {str(e)}")
-    
-    if project_data:
-        # Convert to DataFrame
-        df = pd.DataFrame(project_data)
+        # Group by Project Name
+        projects = df['Project Name'].unique()
+        selected_project = st.selectbox("Select Project", projects)
         
-        # Format currency columns
-        df['Total Value'] = df['Total Value'].apply(lambda x: f"${x:,.2f}")
-        df['Avg Bid'] = df['Avg Bid'].apply(lambda x: f"${x:,.2f}")
-        
-        # Display project table
-        st.dataframe(df, use_container_width=True)
-        
-        # Project Details Expander
-        for project in project_data:
-            with st.expander(f"📋 {project['Project']} Details"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown(f"**Owner:** {project['Owner']}")
-                    st.markdown(f"**Total Bids:** {project['Total Bids']}")
-                    st.markdown(f"**Total Value:** {project['Total Value']}")
-                
-                with col2:
-                    st.markdown(f"**Contractors:** {project['Contractors']}")
-                    st.markdown(f"**Latest Activity:** {project['Latest Activity']}")
-                    st.markdown(f"**Lowest Bidder:** {project['Lowest Bidder']}")
-                
-                # Get contractor breakdown for this project
-                sheet_name = format_sheet_name(project['Project'])
-                project_sheet = spreadsheet.worksheet(sheet_name)
-                bids = project_sheet.get_all_records()
-                
-                contractor_data = {}
-                for bid in bids:
-                    contractor = bid['Contractor']
-                    amount = float(str(bid['Total']).replace('$', '').replace(',', ''))
-                    if contractor not in contractor_data:
-                        contractor_data[contractor] = {
-                            'total': amount,
-                            'count': 1,
-                            'avg': amount
-                        }
-                    else:
-                        contractor_data[contractor]['total'] += amount
-                        contractor_data[contractor]['count'] += 1
-                        contractor_data[contractor]['avg'] = (
-                            contractor_data[contractor]['total'] / 
-                            contractor_data[contractor]['count']
-                        )
-                
-                # Display contractor breakdown
-                st.markdown("#### Contractor Breakdown")
-                contractor_df = pd.DataFrame([
-                    {
-                        'Contractor': contractor,
-                        'Total Bids': data['count'],
-                        'Total Value': f"${data['total']:,.2f}",
-                        'Average Bid': f"${data['avg']:,.2f}"
-                    }
-                    for contractor, data in contractor_data.items()
-                ])
-                st.dataframe(contractor_df, use_container_width=True)
+        if selected_project:
+            project_data = df[df['Project Name'] == selected_project]
+            
+            st.subheader("Project Details")
+            st.write(f"Project Owner: {project_data['Project Owner'].iloc[0]}")
+            st.write(f"Location: {project_data['Location'].iloc[0]}")
+            
+            st.subheader("Bid Items")
+            bid_items = project_data[['Material', 'Unit', 'Quantity', 'Price', 'Total']]
+            st.dataframe(bid_items)
+            
+            total_bid = project_data['Total'].sum()
+            st.write(f"Total Project Bid: ${total_bid:,.2f}")
+    else:
+        st.info("No projects available for tracking")
 
 def get_coordinates(address):
     try:
@@ -665,146 +558,77 @@ def get_coordinates(address):
         return None, None
 
 def project_status_dashboard(spreadsheet):
-    st.markdown("## 📍 Project Status & Location Tracking")
+    st.header("Project Status")
     
-    # Get all projects
-    projects = db.get_projects()
-    if not projects:
-        st.info("No projects found")
-        return
+    worksheet = spreadsheet.worksheet("Master Sheet")
+    data = worksheet.get_all_records()
     
-    # Project selection
-    selected_project = st.selectbox(
-        "Select Project",
-        [p[0] for p in projects]
-    )
-    
-    if selected_project:
-        project_owner = db.get_project_owner(selected_project)
-        st.info(f"Project Owner: {project_owner}")
+    if data:
+        df = pd.DataFrame(data)
         
-        # Initialize project data in session state if not exists
-        project_key = f"{selected_project} - {project_owner}"
-        if project_key not in st.session_state.project_locations:
-            st.session_state.project_locations[project_key] = []
-        if project_key not in st.session_state.project_checklists:
-            st.session_state.project_checklists[project_key] = {}
+        st.subheader("Project Summary")
+        project_summary = df.groupby('Project Name')['Total'].sum().reset_index()
+        project_summary.columns = ['Project Name', 'Total Bid Amount']
+        st.dataframe(project_summary)
         
-        # Create columns for map and location management
-        col1, col2 = st.columns([2, 1])
+        # Project count and total value
+        total_projects = len(df['Project Name'].unique())
+        total_value = df['Total'].sum()
         
+        col1, col2 = st.columns(2)
         with col1:
-            # Display map with all locations
-            if st.session_state.project_locations[project_key]:
-                locations_df = pd.DataFrame([
-                    {
-                        'lat': loc.get('latitude', 40.0583),
-                        'lon': loc.get('longitude', -74.4057),
-                        'status': loc.get('status', 'Pending')
-                    }
-                    for loc in st.session_state.project_locations[project_key]
-                ])
-                st.map(locations_df)
-            else:
-                # Default map centered on New Jersey
-                st.map(pd.DataFrame({
-                    'lat': [40.0583],
-                    'lon': [-74.4057]
-                }))
-        
+            st.metric("Total Projects", total_projects)
         with col2:
-            # Add new location
-            st.markdown("### Add Location")
-            new_location = st.text_input("Enter Address")
-            
-            if st.button("Add Location"):
-                if new_location:
-                    # Get coordinates from OpenStreetMap
-                    latitude, longitude = get_coordinates(new_location)
-                    
-                    if latitude and longitude:
-                        st.session_state.project_locations[project_key].append({
-                            'address': new_location,
-                            'latitude': latitude,
-                            'longitude': longitude,
-                            'status': 'Pending'
-                        })
-                        st.success(f"Added location: {new_location}")
-                        st.rerun()
-                    else:
-                        st.error("Could not find coordinates for this address")
+            st.metric("Total Value", f"${total_value:,.2f}")
+    else:
+        st.info("No project status data available")
+
+def bid_entry_page(spreadsheet):
+    st.header("Bid Entry")
+    
+    worksheet = spreadsheet.worksheet("Master Sheet")
+    
+    # Create the form
+    with st.form("bid_entry_form"):
+        date = st.date_input("Date", datetime.today())
+        contractor = st.text_input("Contractor")
+        project_name = st.text_input("Project Name")
+        project_owner = st.text_input("Project Owner")
+        location = st.text_input("Location")
+        unit_number = st.text_input("Unit Number")
+        material = st.text_input("Material")
+        unit = st.text_input("Unit")
+        quantity = st.number_input("Quantity", min_value=0.0, format="%f")
+        price = st.number_input("Price per Unit", min_value=0.0, format="%f")
         
-        # Location list and checklists
-        st.markdown("### Project Locations")
-        for idx, location in enumerate(st.session_state.project_locations[project_key]):
-            with st.expander(f"📍 {location['address']}"):
-                # Location coordinates
-                st.markdown(f"**Coordinates:** {location.get('latitude', 40.0583):.4f}, {location.get('longitude', -74.4057):.4f}")
-                
-                # Status selection
-                status = st.selectbox(
-                    "Status",
-                    ["Pending", "In Progress", "Completed"],
-                    key=f"status_{idx}",
-                    index=["Pending", "In Progress", "Completed"].index(location.get('status', 'Pending'))
-                )
-                location['status'] = status
-                
-                # Checklist
-                st.markdown("#### Checklist")
-                if location['address'] not in st.session_state.project_checklists[project_key]:
-                    st.session_state.project_checklists[project_key][location['address']] = {
-                        'Site Preparation': False,
-                        'Materials Delivered': False,
-                        'Work Started': False,
-                        'Work Completed': False,
-                        'Final Inspection': False,
-                        'Client Approval': False
-                    }
-                
-                checklist = st.session_state.project_checklists[project_key][location['address']]
-                for item in checklist:
-                    checklist[item] = st.checkbox(
-                        item,
-                        value=checklist[item],
-                        key=f"check_{idx}_{item}"
-                    )
-                
-                # Notes section
-                if 'notes' not in location:
-                    location['notes'] = ""
-                location['notes'] = st.text_area(
-                    "Notes",
-                    value=location['notes'],
-                    key=f"notes_{idx}"
-                )
-                
-                # Delete location button
-                if st.button("Delete Location", key=f"delete_{idx}"):
-                    st.session_state.project_locations[project_key].pop(idx)
-                    st.rerun()
+        # Calculate total
+        total = quantity * price
+        st.write(f"Total: ${total:,.2f}")
         
-        # Project progress
-        st.markdown("### Project Progress")
-        if st.session_state.project_locations[project_key]:
-            total_locations = len(st.session_state.project_locations[project_key])
-            completed = sum(1 for loc in st.session_state.project_locations[project_key] 
-                          if loc['status'] == 'Completed')
-            in_progress = sum(1 for loc in st.session_state.project_locations[project_key] 
-                            if loc['status'] == 'In Progress')
+        submitted = st.form_submit_button("Submit Bid")
+        
+        if submitted:
+            # Prepare the row data
+            row_data = [
+                date.strftime("%Y-%m-%d"),
+                contractor,
+                project_name,
+                project_owner,
+                location,
+                unit_number,
+                material,
+                unit,
+                quantity,
+                price,
+                total,
+                ""  # Empty column at the end
+            ]
             
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Locations", total_locations)
-            with col2:
-                st.metric("In Progress", in_progress)
-            with col3:
-                st.metric("Completed", completed)
-            
-            # Progress bar
-            progress = completed / total_locations
-            st.progress(progress)
-            st.markdown(f"**Overall Progress:** {progress * 100:.1f}%")
+            try:
+                worksheet.append_row(row_data)
+                st.success("Bid successfully added!")
+            except Exception as e:
+                st.error(f"Error adding bid: {str(e)}")
 
 def main():
     st.title("📊 Bid Tracker")
@@ -819,18 +643,7 @@ def main():
     page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":
-        try:
-            worksheet = spreadsheet.worksheet("Master Sheet")  # Changed from "Bids" to "Master Sheet"
-            data = worksheet.get_all_records()
-            st.write(f"Found {len(data)} records in the sheet")
-            
-            # Let's also see the structure of the data
-            if data:
-                st.write("Column headers:", list(data[0].keys()))
-        except Exception as e:
-            st.error(f"Error accessing worksheet: {str(e)}")
-        # ... rest of bid entry code ...
-        
+        bid_entry_page(spreadsheet)
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
     elif page == "Project Status":

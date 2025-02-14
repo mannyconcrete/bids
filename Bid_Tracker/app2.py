@@ -1,4 +1,4 @@
-    import streamlit as st
+import streamlit as st
 from database import Database
 import pandas as pd
 from datetime import datetime, timedelta
@@ -767,41 +767,22 @@ def project_status_dashboard(spreadsheet):
         if project_key not in st.session_state.project_checklists:
             st.session_state.project_checklists[project_key] = {}
         
-        # Create columns for map and location management
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # Display map with all locations
-            if st.session_state.project_locations[project_key]:
-                map_data = pd.DataFrame(
-                    [{'lat': loc['coords'][0], 'lon': loc['coords'][1]} 
-                     for loc in st.session_state.project_locations[project_key]]
-                )
-                st.map(map_data)
-            else:
-                # Default map centered on New Jersey
-                st.map(pd.DataFrame({'lat': [40.0583], 'lon': [-74.4057]}, index=[0]))
-        
-        with col2:
-            # Add new location
-            st.markdown("### Add Location")
-            new_address = st.text_input("Enter Address")
-            if st.button("Add Location"):
-                if new_address:
-                    coords = geocode_address(new_address)
-                    if coords:
-                        st.session_state.project_locations[project_key].append({
-                            'address': new_address,
-                            'coords': coords,
-                            'status': 'Pending'
-                        })
-                        st.success(f"Added location: {new_address}")
-                        st.rerun()
-                    else:
-                        st.error("Could not find coordinates for this address")
-        
         # Location list and checklists
         st.markdown("### Project Locations")
+        
+        # Add new location
+        st.markdown("#### Add New Location")
+        new_location = st.text_input("Location Name/Address")
+        if st.button("Add Location"):
+            if new_location:
+                st.session_state.project_locations[project_key].append({
+                    'address': new_location,
+                    'status': 'Pending'
+                })
+                st.success(f"Added location: {new_location}")
+                st.rerun()
+        
+        # Display existing locations
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
             with st.expander(f"📍 {location['address']}"):
                 # Status selection
@@ -883,7 +864,7 @@ def main():
         st.error("Could not connect to the bid tracking spreadsheet.")
         return
     
-    # Update navigation
+    # Add navigation
     page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":

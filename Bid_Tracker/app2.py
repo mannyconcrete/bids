@@ -739,8 +739,137 @@ def main():
     page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking"])
     
     if page == "Bid Entry":
-        # Existing bid entry code...
-        pass
+        st.markdown("### New Bid")
+        
+        # Get materials list and stats
+        materials_data = get_materials_from_sheet(spreadsheet)
+        material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
+        material_stats = get_material_stats(spreadsheet)
+        
+        # Add "New Project" option to project selection
+        projects = db.get_projects()
+        project_names = [p[0] for p in projects]
+        project_choice = st.selectbox(
+            "Select Project",
+            options=["Create New Project"] + project_names
+        )
+        
+        if project_choice == "Create New Project":
+            st.markdown("### Create New Project")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_project_name = st.text_input("Project Name")
+            with col2:
+                new_project_owner = st.text_input("Project Owner")
+                
+            if st.button("Create Project"):
+                if new_project_name and new_project_owner:
+                    if create_new_project(spreadsheet, new_project_name, new_project_owner):
+                        st.rerun()
+                else:
+                    st.error("Please enter both project name and owner")
+            
+            st.markdown("---")
+        
+        selected_project = project_choice if project_choice != "Create New Project" else None
+        
+        if selected_project:
+            # Get project owner
+            project_owner = db.get_project_owner(selected_project)
+            st.info(f"Project Owner: {project_owner}")
+            
+            # Display bid history for the selected project
+            display_bid_history(spreadsheet, selected_project, project_owner)
+            
+            # Bid entry form
+            contractors = db.get_contractors()
+            contractor_names = [c[0] for c in contractors]
+            selected_contractor = st.selectbox("Select Contractor", contractor_names)
+            
+            if selected_contractor:
+                location = db.get_contractor_location(selected_contractor)
+                st.info(f"Location: {location}")
+                
+                # Bid details
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Material selection with option to add new
+                    material_choice = st.selectbox(
+                        "Material",
+                        options=sorted(material_list) + ["Add New Material"]
+                    )
+                    
+                    if material_choice == "Add New Material":
+                        new_material = st.text_input("New Material Name")
+                        new_unit = st.selectbox(
+                            "Unit for New Material",
+                            options=["SF", "SY", "LF", "Unit"],
+                            key="new_material_unit"
+                        )
+                        if new_material and st.button("Add Material"):
+                            if add_new_material(spreadsheet, new_material, new_unit):
+                                st.rerun()
+                        material = new_material if new_material else None
+                    else:
+                        material = material_choice
+                    
+                    unit_number = st.text_input("Unit Number")
+                
+                with col2:
+                    # Get default unit from materials data
+                    default_unit = next((m['Unit'] for m in materials_data if m['Material'] == material), 'SF')
+                    
+                    unit = st.selectbox(
+                        "Unit",
+                        options=["SF", "SY", "LF", "Unit"],
+                        index=["SF", "SY", "LF", "Unit"].index(default_unit)
+                    )
+                    
+                    quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
+                    
+                    # Auto-suggest price based on material
+                    suggested_price = material_stats.get(material, {}).get('avg_price', 0.0)
+                    if suggested_price > 0:
+                        st.info(f"Average price for {material}: ${suggested_price:.2f} per {default_unit}")
+                    
+                    price = st.number_input(
+                        "Price per Unit",
+                        min_value=0.0,
+                        step=0.01,
+                        value=float(f"{suggested_price:.2f}")
+                    )
+                
+                total = quantity * price
+                st.markdown(f"### Total: ${total:,.2f}")
+                
+                # Submit bid
+                if st.button("Submit Bid"):
+                    if not material:
+                        st.error("Please select or add a material")
+                        return
+                        
+                    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    bid_data = [
+                        date,
+                        selected_contractor,
+                        selected_project,
+                        project_owner,
+                        location,
+                        unit_number,
+                        material,
+                        unit,
+                        quantity,
+                        price,
+                        total
+                    ]
+                    
+                    if all(str(x) != "" for x in bid_data):
+                        sheet_name = format_sheet_name(selected_project, project_owner)
+                        save_to_sheets(spreadsheet, bid_data, sheet_name)
+                    else:
+                        st.error("Please fill in all fields")
+    
     elif page == "Project Tracking":
         project_tracking_dashboard()
 

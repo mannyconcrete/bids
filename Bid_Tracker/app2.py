@@ -10,6 +10,12 @@ import requests
 # Initialize database
 db = Database()
 
+def format_sheet_name(project_name):
+    """Format project name to be valid as a sheet name"""
+    # Remove invalid characters and limit length
+    valid_name = "".join(c for c in project_name if c.isalnum() or c in " -_")
+    return valid_name[:31]  # Sheets names limited to 31 chars
+
 # Add to session state initialization at the top
 if 'project_locations' not in st.session_state:
     st.session_state.project_locations = {}
@@ -625,7 +631,7 @@ def project_tracking_dashboard(spreadsheet):
     
     for project_name, owner in projects:
         try:
-            sheet_name = format_sheet_name(project_name, owner)
+            sheet_name = format_sheet_name(project_name)
             project_sheet = spreadsheet.worksheet(sheet_name)
             bids = project_sheet.get_all_records()
             
@@ -694,7 +700,7 @@ def project_tracking_dashboard(spreadsheet):
                     st.markdown(f"**Lowest Bidder:** {project['Lowest Bidder']}")
                 
                 # Get contractor breakdown for this project
-                sheet_name = format_sheet_name(project['Project'], project['Owner'])
+                sheet_name = format_sheet_name(project['Project'])
                 project_sheet = spreadsheet.worksheet(sheet_name)
                 bids = project_sheet.get_all_records()
                 
@@ -946,7 +952,7 @@ def main():
             
             # Display bid history for the selected project
             try:
-                sheet_name = format_sheet_name(selected_project, project_owner)
+                sheet_name = format_sheet_name(selected_project)
                 display_bid_history(spreadsheet, selected_project, project_owner)
             except Exception as e:
                 st.error(f"Error displaying bid history: {str(e)}")

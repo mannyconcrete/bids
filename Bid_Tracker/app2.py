@@ -170,18 +170,17 @@ def get_spreadsheet(sheets_client):
 def get_google_services():
     """Initialize Google services"""
     try:
-        # Get credentials from environment or config
         credentials = {
             "type": "service_account",
-            "project_id": os.getenv("GOOGLE_PROJECT_ID"),
-            "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-            "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
-            "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
-            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+            "project_id": st.secrets["GOOGLE_PROJECT_ID"],
+            "private_key_id": st.secrets["GOOGLE_PRIVATE_KEY_ID"],
+            "private_key": st.secrets["GOOGLE_PRIVATE_KEY"],
+            "client_email": st.secrets["GOOGLE_CLIENT_EMAIL"],
+            "client_id": st.secrets["GOOGLE_CLIENT_ID"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL")
+            "client_x509_cert_url": st.secrets["GOOGLE_CLIENT_X509_CERT_URL"]
         }
         
         scopes = [
@@ -191,7 +190,7 @@ def get_google_services():
         
         creds = service_account.Credentials.from_service_account_info(credentials, scopes=scopes)
         client = gspread.authorize(creds)
-        spreadsheet = client.open_by_key(os.getenv("GOOGLE_SPREADSHEET_ID"))
+        spreadsheet = client.open_by_key(st.secrets["GOOGLE_SPREADSHEET_ID"])
         
         return None, client, spreadsheet
     except Exception as e:

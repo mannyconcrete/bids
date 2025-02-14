@@ -78,38 +78,12 @@ def get_contractor_location(contractor_name):
 def get_google_services():
     try:
         # First, check if we can access secrets
-        if not hasattr(st, 'secrets'):
-            st.error("No secrets found. Make sure secrets.toml is in the .streamlit directory")
-            return None, None
-            
-        # Try to get all required secrets
-        required_keys = [
-            "type", "project_id", "private_key_id", "private_key",
-            "client_email", "client_id", "auth_uri", "token_uri",
-            "auth_provider_x509_cert_url", "client_x509_cert_url",
-            "universe_domain"
-        ]
-        
-        missing_keys = [key for key in required_keys if key not in st.secrets]
-        if missing_keys:
-            st.error(f"Missing required secrets: {', '.join(missing_keys)}")
-            st.info("Please check your .streamlit/secrets.toml file")
+        if 'gcp_service_account' not in st.secrets:
+            st.error("No GCP service account secrets found")
             return None, None
             
         # Create credentials dict from secrets
-        credentials_dict = {
-            "type": st.secrets["type"],
-            "project_id": st.secrets["project_id"],
-            "private_key_id": st.secrets["private_key_id"],
-            "private_key": st.secrets["private_key"],
-            "client_email": st.secrets["client_email"],
-            "client_id": st.secrets["client_id"],
-            "auth_uri": st.secrets["auth_uri"],
-            "token_uri": st.secrets["token_uri"],
-            "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": st.secrets["client_x509_cert_url"],
-            "universe_domain": st.secrets["universe_domain"]
-        }
+        credentials_dict = st.secrets["gcp_service_account"]
         
         credentials = service_account.Credentials.from_service_account_info(
             credentials_dict,
@@ -213,8 +187,9 @@ def share_spreadsheet(drive_service, spreadsheet):
         st.error(f"Error sharing spreadsheet: {str(e)}")
 
 def main():
-    # Debug secrets
-    st.write("Available secrets:", list(st.secrets.keys()) if hasattr(st, 'secrets') else "No secrets found")
+    # Debug secrets (you can remove this later)
+    if st.secrets["gcp_service_account"]:
+        st.write("GCP credentials found!")
     
     st.title("📊 Bid Tracker")
     

@@ -3,10 +3,6 @@ from database import Database
 import pandas as pd
 from datetime import datetime
 import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
 
 # Initialize database
 db = Database()
@@ -38,7 +34,7 @@ try:
 except ImportError:
     st.error("""
         Missing required packages. Please run:
-        pip install gspread google-auth google-api-python-client python-dotenv
+        pip install gspread google-auth google-api-python-client
     """)
     st.stop()
 

@@ -459,6 +459,44 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
         st.error(f"Error adding material: {str(e)}")
         return False
 
+def display_bid_history(spreadsheet, project_name):
+    try:
+        time.sleep(1)  # Add delay to prevent quota issues
+        project_sheet = spreadsheet.worksheet(project_name)
+        data = project_sheet.get_all_records()
+        
+        if not data:
+            st.info(f"No bid history found for {project_name}")
+            return
+        
+        # Display bids in a table
+        st.markdown(f"### Bid History for {project_name}")
+        
+        # Convert data to DataFrame for better display
+        df = pd.DataFrame(data)
+        
+        # Format currency columns
+        if 'Price' in df.columns:
+            df['Price'] = df['Price'].apply(lambda x: f"${float(str(x).replace('$', '').replace(',', '')):,.2f}")
+        if 'Total' in df.columns:
+            df['Total'] = df['Total'].apply(lambda x: f"${float(str(x).replace('$', '').replace(',', '')):,.2f}")
+        
+        # Display the table
+        st.dataframe(df, use_container_width=True)
+        
+        # Calculate and display total
+        try:
+            total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
+            st.markdown(f"### Project Total: ${total:,.2f}")
+        except:
+            st.warning("Could not calculate project total")
+            
+    except Exception as e:
+        if "429" in str(e):
+            st.error("Rate limit reached. Please wait a moment and try again.")
+        else:
+            st.error(f"Error displaying bid history: {str(e)}")
+
 def main():
     st.title("📊 Bid Tracker")
     
@@ -484,6 +522,10 @@ def main():
     selected_project = st.selectbox("Select Project", project_names)
     
     if selected_project:
+        # Display bid history for the selected project
+        display_bid_history(spreadsheet, selected_project)
+        
+        # Rest of the bid entry form
         contractors = db.get_contractors()
         contractor_names = [c[0] for c in contractors]
         selected_contractor = st.selectbox("Select Contractor", contractor_names)

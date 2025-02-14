@@ -180,10 +180,6 @@ def get_google_services():
         
         client = gspread.authorize(credentials)
         spreadsheet = client.open_by_key(st.secrets["spreadsheet_id"])
-        
-        # Debug information
-        st.write("Available sheets:", [sheet.title for sheet in spreadsheet.worksheets()])
-        
         return None, client, spreadsheet
     except Exception as e:
         st.error(f"Error connecting to Google services: {str(e)}")
@@ -586,18 +582,29 @@ def project_status_dashboard(spreadsheet):
 def bid_entry_page(spreadsheet):
     st.header("Bid Entry")
     
+    # Get materials from the Materials sheet
+    materials_sheet = spreadsheet.worksheet("Materials")
+    materials_data = materials_sheet.get_all_records()
+    materials_list = [item.get('Material', '') for item in materials_data if item.get('Material')]
+    
     worksheet = spreadsheet.worksheet("Master Sheet")
     
     # Create the form
     with st.form("bid_entry_form"):
         date = st.date_input("Date", datetime.today())
-        contractor = st.text_input("Contractor")
+        contractor = st.text_input("Contractor", value="Manny's Concrete NJ")
         project_name = st.text_input("Project Name")
         project_owner = st.text_input("Project Owner")
         location = st.text_input("Location")
         unit_number = st.text_input("Unit Number")
-        material = st.text_input("Material")
-        unit = st.text_input("Unit")
+        
+        # Use dropdown for materials
+        material = st.selectbox("Material", options=materials_list)
+        
+        # Get default unit based on selected material
+        default_unit = next((item.get('Unit', '') for item in materials_data if item.get('Material') == material), '')
+        unit = st.text_input("Unit", value=default_unit)
+        
         quantity = st.number_input("Quantity", min_value=0.0, format="%f")
         price = st.number_input("Price per Unit", min_value=0.0, format="%f")
         
@@ -627,6 +634,9 @@ def bid_entry_page(spreadsheet):
             try:
                 worksheet.append_row(row_data)
                 st.success("Bid successfully added!")
+                
+                # Clear the form (by rerunning the app)
+                st.experimental_rerun()
             except Exception as e:
                 st.error(f"Error adding bid: {str(e)}")
 
@@ -640,14 +650,12 @@ def main():
         return
         
     # Add navigation
-    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
+    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking"])
     
     if page == "Bid Entry":
         bid_entry_page(spreadsheet)
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
-    elif page == "Project Status":
-        project_status_dashboard(spreadsheet)
 
 if __name__ == "__main__":
     main()

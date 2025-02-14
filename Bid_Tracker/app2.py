@@ -820,9 +820,13 @@ def main():
     
     if page == "Bid Entry":
         try:
-            worksheet = spreadsheet.worksheet("Bids")  # or your sheet name
+            worksheet = spreadsheet.worksheet("Master Sheet")  # Changed from "Bids" to "Master Sheet"
             data = worksheet.get_all_records()
             st.write(f"Found {len(data)} records in the sheet")
+            
+            # Let's also see the structure of the data
+            if data:
+                st.write("Column headers:", list(data[0].keys()))
         except Exception as e:
             st.error(f"Error accessing worksheet: {str(e)}")
         # ... rest of bid entry code ...

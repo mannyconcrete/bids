@@ -775,13 +775,13 @@ def project_status_dashboard(spreadsheet):
             # Display map with all locations
             if st.session_state.project_locations[project_key]:
                 map_data = pd.DataFrame(
-                    [loc['coords'] for loc in st.session_state.project_locations[project_key]],
-                    columns=['lat', 'lon']
+                    [{'lat': loc['coords'][0], 'lon': loc['coords'][1]} 
+                     for loc in st.session_state.project_locations[project_key]]
                 )
                 st.map(map_data)
             else:
                 # Default map centered on New Jersey
-                st.map(pd.DataFrame({'lat': [40.0583], 'lon': [-74.4057]}))
+                st.map(pd.DataFrame({'lat': [40.0583], 'lon': [-74.4057]}, index=[0]))
         
         with col2:
             # Add new location

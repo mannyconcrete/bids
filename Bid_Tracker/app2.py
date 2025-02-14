@@ -367,7 +367,17 @@ def get_materials_from_sheet(spreadsheet):
         if not materials_sheet:
             return {}
             
-        materials_data = materials_sheet.get_all_records()
+        # Get all data from the Materials sheet
+        all_data = materials_sheet.get_all_values()
+        
+        # Skip header row and create list of materials
+        materials_data = []
+        for row in all_data[1:]:  # Skip header row
+            if row and len(row) >= 2 and row[0].strip():  # Check for valid rows
+                materials_data.append({
+                    'Material': row[0].strip(),
+                    'Unit': row[1].strip() if len(row) > 1 and row[1].strip() else 'SF'
+                })
         
         # Update cache
         st.session_state.cache['materials'] = materials_data
@@ -515,11 +525,9 @@ def main():
     elif page == "Bid Entry":
         st.markdown("### New Bid")
         
-        # Get materials and averages
-        material_stats = get_material_stats(spreadsheet)
-        
-        # Sort materials alphabetically
-        material_list = sorted(list(material_stats.keys()))
+        # Get materials list
+        materials_data = get_materials_from_sheet(spreadsheet)
+        material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
         
         # Project selection
         projects = db.get_projects()
@@ -541,7 +549,7 @@ def main():
                     # Material selection with option to add new
                     material_choice = st.selectbox(
                         "Material",
-                        options=material_list + ["Add New Material"]
+                        options=sorted(material_list) + ["Add New Material"]
                     )
                     
                     if material_choice == "Add New Material":
@@ -552,8 +560,8 @@ def main():
                             key="new_material_unit"
                         )
                         if new_material and st.button("Add Material"):
-                            add_new_material(spreadsheet, new_material, new_unit)
-                            st.rerun()
+                            if add_new_material(spreadsheet, new_material, new_unit):
+                                st.rerun()
                         material = new_material if new_material else None
                     else:
                         material = material_choice

@@ -849,6 +849,120 @@ def get_recent_bids(worksheet, project_name=None):
         st.error(f"Error loading bid history: {str(e)}")
         return []
 
+def bid_entry_page(spreadsheet):
+    st.header("Bid Entry")
+    
+    # Get materials from the Materials sheet
+    materials_sheet = spreadsheet.worksheet("Materials")
+    materials_data = materials_sheet.get_all_records()
+    materials_list = [item.get('Material', '') for item in materials_data if item.get('Material')]
+    
+    # Get master sheet
+    worksheet = spreadsheet.worksheet("Master Sheet")
+    
+    # Create columns for form and history
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        with st.form("bid_entry_form"):
+            date = st.date_input("Date", datetime.today())
+            
+            # Contractor Selection/Entry
+            if st.session_state.saved_contractors:
+                contractor_options = sorted(list(st.session_state.saved_contractors)) + ["Other"]
+                contractor_choice = st.selectbox("Contractor", options=contractor_options)
+                if contractor_choice == "Other":
+                    contractor = st.text_input("Enter new contractor name")
+                else:
+                    contractor = contractor_choice
+            else:
+                contractor = st.text_input("Contractor")
+            
+            # Project Selection
+            project_options = ["New Project"] + list(st.session_state.saved_projects.keys())
+            project_choice = st.selectbox("Select Project", project_options)
+            
+            if project_choice == "New Project":
+                project_name = st.text_input("Project Name")
+                project_owner = st.text_input("Project Owner")
+                location = st.text_input("Location")
+            else:
+                project_name = project_choice
+                project_data = st.session_state.saved_projects[project_choice]
+                project_owner = project_data['owner']
+                location = project_data['location']
+                st.write(f"Project Owner: {project_owner}")
+                st.write(f"Location: {location}")
+            
+            unit_number = st.text_input("Unit Number")
+            material = st.selectbox("Material", options=materials_list)
+            
+            # Get default unit based on selected material
+            default_unit = next((item.get('Unit', '') for item in materials_data if item.get('Material') == material), '')
+            unit = st.text_input("Unit", value=default_unit)
+            
+            quantity = st.number_input("Quantity", min_value=0.0, format="%f")
+            price = st.number_input("Price per Unit", min_value=0.0, format="%f")
+            
+            # Calculate total
+            total = quantity * price
+            st.write(f"Total: ${total:,.2f}")
+            
+            submitted = st.form_submit_button("Submit Bid")
+            
+            if submitted:
+                try:
+                    # Prepare row data
+                    row_data = [
+                        date.strftime("%Y-%m-%d"),
+                        contractor,
+                        project_name,
+                        project_owner,
+                        location,
+                        unit_number,
+                        material,
+                        unit,
+                        quantity,
+                        price,
+                        total
+                    ]
+                    
+                    # Save to Google Sheet
+                    worksheet.append_row(row_data)
+                    
+                    # Update session state
+                    st.session_state.saved_contractors.add(contractor)
+                    if project_choice == "New Project":
+                        st.session_state.saved_projects[project_name] = {
+                            'owner': project_owner,
+                            'location': location,
+                            'status': 'Not Started',
+                            'start_date': date.strftime("%Y-%m-%d"),
+                            'last_updated': datetime.now().strftime('%Y-%m-%d')
+                        }
+                    
+                    st.success("Bid successfully added!")
+                    time.sleep(0.5)
+                    st.experimental_rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error adding bid: {str(e)}")
+    
+    with col2:
+        st.subheader("Recent Bids")
+        recent_bids = get_recent_bids(worksheet)
+        
+        if recent_bids:
+            for bid in reversed(recent_bids):
+                with st.expander(f"{bid['Project Name']} - {bid['Date']}"):
+                    st.write(f"Contractor: {bid['Contractor']}")
+                    st.write(f"Material: {bid['Material']}")
+                    st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
+                    st.write(f"Price: ${bid['Price']:.2f}")
+                    st.write(f"Total: ${bid['Total']:.2f}")
+        else:
+            st.info("No bid history available")
+
 def main():
     st.title("📊 Bid Tracker")
     
@@ -867,55 +981,7 @@ def main():
     page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":
-        st.markdown("### New Bid")
-        
-        # Get materials list and stats
-        materials_data = get_materials_from_sheet(spreadsheet)
-        material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
-        material_stats = get_material_stats(spreadsheet)
-        
-        # Add "New Project" option to project selection
-        projects = db.get_projects()
-        project_names = [p[0] for p in projects]
-        project_choice = st.selectbox(
-            "Select Project",
-            options=["Create New Project"] + project_names
-        )
-        
-        if project_choice == "Create New Project":
-            st.markdown("### Create New Project")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                new_project_name = st.text_input("Project Name")
-            with col2:
-                new_project_owner = st.text_input("Project Owner")
-                
-            if st.button("Create Project"):
-                if new_project_name and new_project_owner:
-                    if create_new_project(spreadsheet, new_project_name, new_project_owner):
-                        st.rerun()
-                else:
-                    st.error("Please enter both project name and owner")
-            
-            st.markdown("---")
-        
-        selected_project = project_choice if project_choice != "Create New Project" else None
-        
-        if selected_project:
-            # Get project owner
-            project_owner = db.get_project_owner(selected_project)
-            st.info(f"Project Owner: {project_owner}")
-            
-            # Display bid history for the selected project
-            try:
-                display_bid_history(spreadsheet, selected_project)
-            except Exception as e:
-                st.error(f"Error displaying bid history: {str(e)}")
-            
-            # Rest of bid entry form...
-            # ... (keep existing code) ...
-    
+        bid_entry_page(spreadsheet)
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
     elif page == "Project Status":

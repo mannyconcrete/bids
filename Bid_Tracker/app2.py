@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import os
 import time
 import json
-import db
 
 # Initialize database
 db = Database()
@@ -728,6 +727,17 @@ def project_tracking_dashboard(spreadsheet):
                     for contractor, data in contractor_data.items()
                 ])
                 st.dataframe(contractor_df, use_container_width=True)
+
+def geocode_address(address):
+    try:
+        geolocator = Nominatim(user_agent="bid_tracker")
+        location = geolocator.geocode(address)
+        if location:
+            return [location.latitude, location.longitude]
+        return None
+    except Exception as e:
+        st.error(f"Error geocoding address: {str(e)}")
+        return None
 
 def project_status_dashboard(spreadsheet):
     st.markdown("## 📍 Project Status & Location Tracking")

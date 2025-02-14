@@ -472,243 +472,119 @@ def main():
     if not spreadsheet:
         st.error("Could not connect to the bid tracking spreadsheet.")
         return
-        
-    # Store spreadsheet ID in session state
-    if 'spreadsheet_id' not in st.session_state:
-        st.session_state.spreadsheet_id = spreadsheet.id
     
-    # Mobile-friendly navigation
-    page = st.radio("Navigation", ["Projects", "Contractors", "Bid Entry", "History"])
+    # Get materials list and stats
+    materials_data = get_materials_from_sheet(spreadsheet)
+    material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
+    material_stats = get_material_stats(spreadsheet)
     
-    if page == "Projects":
-        st.markdown("### Projects")
-        col1, col2 = st.columns(2)
-        with col1:
-            new_project_name = st.text_input("Project Name")
-        with col2:
-            new_project_owner = st.text_input("Project Owner")
-        
-        if st.button("Add Project") and new_project_name and new_project_owner:
-            if db.add_project(new_project_name, new_project_owner):
-                st.success(f"Added project: {new_project_name}")
-            else:
-                st.error("Project already exists")
-        
-        # Show existing projects
-        projects = db.get_projects()
-        if projects:
-            st.markdown("### Existing Projects")
-            df = pd.DataFrame(projects, columns=["Project Name", "Owner"])
-            st.dataframe(df)
+    # Project selection
+    projects = db.get_projects()
+    project_names = [p[0] for p in projects]
+    selected_project = st.selectbox("Select Project", project_names)
     
-    elif page == "Contractors":
-        st.markdown("### Contractors")
-        col1, col2 = st.columns(2)
-        with col1:
-            new_contractor = st.text_input("Contractor Name")
-        with col2:
-            new_location = st.text_input("Location")
-        
-        if st.button("Add Contractor") and new_contractor and new_location:
-            if db.add_contractor(new_contractor, new_location):
-                st.success(f"Added contractor: {new_contractor}")
-            else:
-                st.error("Contractor already exists")
-        
-        # Show existing contractors
+    if selected_project:
         contractors = db.get_contractors()
-        if contractors:
-            st.markdown("### Existing Contractors")
-            df = pd.DataFrame(contractors, columns=["Contractor", "Location"])
-            st.dataframe(df)
-    
-    elif page == "Bid Entry":
-        st.markdown("### New Bid")
+        contractor_names = [c[0] for c in contractors]
+        selected_contractor = st.selectbox("Select Contractor", contractor_names)
         
-        # Get materials list
-        materials_data = get_materials_from_sheet(spreadsheet)
-        material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
-        
-        # Project selection
-        projects = db.get_projects()
-        project_names = [p[0] for p in projects]
-        selected_project = st.selectbox("Select Project", project_names)
-        
-        if selected_project:
-            contractors = db.get_contractors()
-            contractor_names = [c[0] for c in contractors]
-            selected_contractor = st.selectbox("Select Contractor", contractor_names)
+        if selected_contractor:
+            location = db.get_contractor_location(selected_contractor)
+            st.info(f"Location: {location}")
             
-            if selected_contractor:
-                location = db.get_contractor_location(selected_contractor)
-                st.info(f"Location: {location}")
-                
-                # Bid details
-                col1, col2 = st.columns(2)
-                with col1:
-                    # Material selection with option to add new
-                    material_choice = st.selectbox(
-                        "Material",
-                        options=sorted(material_list) + ["Add New Material"]
-                    )
-                    
-                    if material_choice == "Add New Material":
-                        new_material = st.text_input("New Material Name")
-                        new_unit = st.selectbox(
-                            "Unit for New Material",
-                            options=["SF", "SY", "LF", "Unit"],
-                            key="new_material_unit"
-                        )
-                        if new_material and st.button("Add Material"):
-                            if add_new_material(spreadsheet, new_material, new_unit):
-                                st.rerun()
-                        material = new_material if new_material else None
-                    else:
-                        material = material_choice
-                    
-                    unit_number = st.text_input("Unit Number")
-                
-                with col2:
-                    # Auto-suggest unit based on material
-                    unit_options = ["SF", "SY", "LF", "Unit"]
-                    suggested_unit = material_stats.get(material, {}).get('most_common_unit', 'SF')
-                    default_index = 0
-                    
-                    try:
-                        default_index = unit_options.index(suggested_unit)
-                    except ValueError:
-                        pass
-                    
-                    unit = st.selectbox(
-                        "Unit",
-                        options=unit_options,
-                        index=default_index
-                    )
-                    
-                    quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
-                    
-                    # Auto-suggest price based on material
-                    suggested_price = material_stats.get(material, {}).get('avg_price', 0.0)
-                    if suggested_price > 0:
-                        st.info(f"Average price for {material}: ${suggested_price:.2f} per {suggested_unit}")
-                    
-                    price = st.number_input(
-                        "Price per Unit",
-                        min_value=0.0,
-                        step=0.01,
-                        value=float(f"{suggested_price:.2f}")
-                    )
-                
-                total = quantity * price
-                st.markdown(f"### Total: ${total:,.2f}")
-                
-                # Show historical prices
-                if material in material_stats:
-                    with st.expander("View Price History"):
-                        stats = material_stats[material]
-                        st.write(f"Price Statistics for {material}:")
-                        st.write(f"Average: ${stats['avg_price']:.2f}")
-                        
-                        # Only show min/max if there are prices
-                        if stats['prices']:
-                            st.write(f"Lowest: ${min(stats['prices']):.2f}")
-                            st.write(f"Highest: ${max(stats['prices']):.2f}")
-                        else:
-                            st.write("No price history available")
-                            
-                        st.write(f"Most common unit: {stats['most_common_unit']}")
-                
-                # Submit bid
-                if st.button("Submit Bid"):
-                    if not material:  # Check if material is selected
-                        st.error("Please select or add a material")
-                        return
-                        
-                    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    bid_data = [
-                        date,                   # Date
-                        selected_contractor,    # Contractor
-                        selected_project,       # Project Name
-                        db.get_project_owner(selected_project),  # Project Owner
-                        location,              # Location
-                        unit_number,           # Unit Number
-                        material,              # Material
-                        unit,                  # Unit
-                        quantity,              # Quantity
-                        price,                 # Price
-                        total                  # Total
-                    ]
-                    
-                    # Verify all data is present
-                    if all(str(x) != "" for x in bid_data):
-                        save_to_sheets(spreadsheet, bid_data, selected_project)
-                    else:
-                        st.error("Please fill in all fields")
-                        st.write("Missing fields:", [i for i, x in enumerate(bid_data) if str(x) == ""])
-    
-    elif page == "History":
-        st.markdown("### Bid History")
-        try:
-            worksheet_list = spreadsheet.worksheets()
-            project_sheets = [sheet.title for sheet in worksheet_list if sheet.title != "Master Sheet"]
-            
-            if project_sheets:
-                selected_project = st.selectbox(
-                    "Select Project to View",
-                    options=project_sheets
+            # Bid details
+            col1, col2 = st.columns(2)
+            with col1:
+                # Material selection with option to add new
+                material_choice = st.selectbox(
+                    "Material",
+                    options=sorted(material_list) + ["Add New Material"]
                 )
                 
-                sheet = spreadsheet.worksheet(selected_project)
-                data = sheet.get_all_records()
-                
-                if data:
-                    # Calculate and display contractor totals
-                    st.markdown("### Project Totals by Contractor")
-                    contractor_totals = calculate_contractor_totals(data)
-                    
-                    # Display totals in columns
-                    cols = st.columns(len(contractor_totals) + 1)
-                    
-                    # Display individual contractor totals
-                    grand_total = 0
-                    for idx, (contractor, total) in enumerate(contractor_totals.items()):
-                        with cols[idx]:
-                            st.metric(
-                                label=contractor,
-                                value=f"${total:,.2f}"
-                            )
-                        grand_total += total
-                    
-                    # Display grand total
-                    with cols[-1]:
-                        st.metric(
-                            label="GRAND TOTAL",
-                            value=f"${grand_total:,.2f}"
-                        )
-                    
-                    # Display bid history
-                    st.markdown("### Detailed Bid History")
-                    df = pd.DataFrame(data)
-                    st.dataframe(df)
-                    
-                    # Delete functionality
-                    row_to_delete = st.number_input(
-                        "Row to Delete",
-                        min_value=1,
-                        max_value=len(data),
-                        value=1
+                if material_choice == "Add New Material":
+                    new_material = st.text_input("New Material Name")
+                    new_unit = st.selectbox(
+                        "Unit for New Material",
+                        options=["SF", "SY", "LF", "Unit"],
+                        key="new_material_unit"
                     )
-                    if st.button("Delete Selected Row"):
-                        if delete_row(spreadsheet, selected_project, row_to_delete):
-                            st.success(f"Row {row_to_delete} deleted successfully!")
+                    if new_material and st.button("Add Material"):
+                        if add_new_material(spreadsheet, new_material, new_unit):
                             st.rerun()
+                    material = new_material if new_material else None
                 else:
-                    st.info("No bid history found for this project.")
-            else:
-                st.info("No projects found. Add your first bid to create a project sheet.")
+                    material = material_choice
                 
-        except Exception as e:
-            st.error(f"Error loading historical data: {str(e)}")
+                unit_number = st.text_input("Unit Number")
+            
+            with col2:
+                # Get default unit from materials data
+                default_unit = next((m['Unit'] for m in materials_data if m['Material'] == material), 'SF')
+                
+                unit = st.selectbox(
+                    "Unit",
+                    options=["SF", "SY", "LF", "Unit"],
+                    index=["SF", "SY", "LF", "Unit"].index(default_unit)
+                )
+                
+                quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
+                
+                # Auto-suggest price based on material
+                suggested_price = material_stats.get(material, {}).get('avg_price', 0.0)
+                if suggested_price > 0:
+                    st.info(f"Average price for {material}: ${suggested_price:.2f} per {default_unit}")
+                
+                price = st.number_input(
+                    "Price per Unit",
+                    min_value=0.0,
+                    step=0.01,
+                    value=float(f"{suggested_price:.2f}")
+                )
+            
+            total = quantity * price
+            st.markdown(f"### Total: ${total:,.2f}")
+            
+            # Show historical prices
+            if material in material_stats:
+                with st.expander("View Price History"):
+                    stats = material_stats[material]
+                    st.write(f"Price Statistics for {material}:")
+                    st.write(f"Average: ${stats['avg_price']:.2f}")
+                    
+                    # Only show min/max if there are prices
+                    if stats['prices']:
+                        st.write(f"Lowest: ${min(stats['prices']):.2f}")
+                        st.write(f"Highest: ${max(stats['prices']):.2f}")
+                    else:
+                        st.write("No price history available")
+                        
+                    st.write(f"Most common unit: {stats['most_common_unit']}")
+            
+            # Submit bid
+            if st.button("Submit Bid"):
+                if not material:
+                    st.error("Please select or add a material")
+                    return
+                    
+                date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                bid_data = [
+                    date,                   # Date
+                    selected_contractor,    # Contractor
+                    selected_project,       # Project Name
+                    db.get_project_owner(selected_project),  # Project Owner
+                    location,              # Location
+                    unit_number,           # Unit Number
+                    material,              # Material
+                    unit,                  # Unit
+                    quantity,              # Quantity
+                    price,                 # Price
+                    total                  # Total
+                ]
+                
+                if all(str(x) != "" for x in bid_data):
+                    save_to_sheets(spreadsheet, bid_data, selected_project)
+                else:
+                    st.error("Please fill in all fields")
 
     # Add Share Button in sidebar
     with st.sidebar:

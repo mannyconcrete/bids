@@ -8,6 +8,10 @@ from database import Database
 import requests
 import gspread
 from google.oauth2 import service_account
+import folium
+from streamlit_folium import folium_static
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut
 
 # Initialize database
 db = Database()
@@ -16,6 +20,14 @@ db = Database()
 if 'bid_history' not in st.session_state:
     st.session_state.bid_history = []
 
+# Initialize session state for saved data
+if 'saved_projects' not in st.session_state:
+    st.session_state.saved_projects = {}
+if 'saved_contractors' not in st.session_state:
+    st.session_state.saved_contractors = set()
+if 'project_locations' not in st.session_state:
+    st.session_state.project_locations = {}
+
 def format_sheet_name(project_name):
     """Format project name to be valid as a sheet name"""
     # Remove invalid characters and limit length
@@ -23,8 +35,6 @@ def format_sheet_name(project_name):
     return valid_name[:31]  # Sheets names limited to 31 chars
 
 # Add to session state initialization at the top
-if 'project_locations' not in st.session_state:
-    st.session_state.project_locations = {}
 if 'project_checklists' not in st.session_state:
     st.session_state.project_checklists = {}
 
@@ -529,16 +539,32 @@ def project_tracking_dashboard(spreadsheet):
         if selected_project:
             project_data = df[df['Project Name'] == selected_project]
             
-            st.subheader("Project Details")
-            st.write(f"Project Owner: {project_data['Project Owner'].iloc[0]}")
-            st.write(f"Location: {project_data['Location'].iloc[0]}")
+            col1, col2 = st.columns([2, 1])
             
-            st.subheader("Bid Items")
-            bid_items = project_data[['Material', 'Unit', 'Quantity', 'Price', 'Total']]
-            st.dataframe(bid_items)
+            with col1:
+                st.subheader("Project Details")
+                st.write(f"Project Owner: {project_data['Project Owner'].iloc[0]}")
+                st.write(f"Location: {project_data['Location'].iloc[0]}")
+                
+                st.subheader("Bid Items")
+                bid_items = project_data[['Material', 'Unit', 'Quantity', 'Price', 'Total']]
+                st.dataframe(bid_items)
+                
+                total_bid = project_data['Total'].sum()
+                st.write(f"Total Project Bid: ${total_bid:,.2f}")
             
-            total_bid = project_data['Total'].sum()
-            st.write(f"Total Project Bid: ${total_bid:,.2f}")
+            with col2:
+                # Show project location on map
+                if selected_project in st.session_state.project_locations:
+                    st.subheader("Project Location")
+                    coords = st.session_state.project_locations[selected_project]
+                    m = folium.Map(location=coords, zoom_start=13)
+                    folium.Marker(
+                        coords,
+                        popup=selected_project,
+                        tooltip=project_data['Location'].iloc[0]
+                    ).add_to(m)
+                    folium_static(m)
             
             # Show bid history for selected project
             st.subheader("Project Bid History")
@@ -546,88 +572,25 @@ def project_tracking_dashboard(spreadsheet):
             if recent_bids:
                 for bid in reversed(recent_bids):
                     with st.expander(f"{bid['Date']} - {bid['Material']}"):
+                        st.write(f"Contractor: {bid['Contractor']}")
                         st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
                         st.write(f"Price: ${bid['Price']:.2f}")
                         st.write(f"Total: ${bid['Total']:.2f}")
     else:
         st.info("No projects available for tracking")
 
-def get_coordinates(address):
+def get_location_coordinates(location):
+    """Get coordinates for a location using Nominatim"""
     try:
-        # Using OpenStreetMap Nominatim API (no key required)
-        url = f"https://nominatim.openstreetmap.org/search?q={address}&format=json&limit=1"
-        headers = {'User-Agent': 'BidTracker/1.0'}
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        
-        if data:
-            return float(data[0]['lat']), float(data[0]['lon'])
-        return None, None
+        geolocator = Nominatim(user_agent="bid_tracker")
+        location_data = geolocator.geocode(location)
+        if location_data:
+            return (location_data.latitude, location_data.longitude)
+    except GeocoderTimedOut:
+        st.warning("Geocoding service timed out. Please try again.")
     except Exception as e:
-        st.error(f"Error geocoding address: {str(e)}")
-        return None, None
-
-def project_status_dashboard(spreadsheet):
-    st.header("Project Status")
-    
-    worksheet = spreadsheet.worksheet("Master Sheet")
-    data = worksheet.get_all_records()
-    
-    if data:
-        df = pd.DataFrame(data)
-        
-        # Summary metrics
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            total_projects = len(df['Project Name'].unique())
-            st.metric("Total Projects", total_projects)
-            
-        with col2:
-            total_value = df['Total'].sum()
-            st.metric("Total Value", f"${total_value:,.2f}")
-            
-        with col3:
-            avg_project_value = total_value / total_projects if total_projects > 0 else 0
-            st.metric("Average Project Value", f"${avg_project_value:,.2f}")
-        
-        # Project summary table
-        st.subheader("Project Summary")
-        project_summary = df.groupby('Project Name').agg({
-            'Total': 'sum',
-            'Project Owner': 'first',
-            'Location': 'first'
-        }).reset_index()
-        
-        project_summary.columns = ['Project Name', 'Total Value', 'Project Owner', 'Location']
-        st.dataframe(project_summary.style.format({
-            'Total Value': '${:,.2f}'
-        }))
-        
-        # Materials breakdown
-        st.subheader("Materials Breakdown")
-        materials_summary = df.groupby('Material').agg({
-            'Quantity': 'sum',
-            'Unit': 'first',
-            'Total': 'sum'
-        }).reset_index()
-        
-        materials_summary.columns = ['Material', 'Total Quantity', 'Unit', 'Total Value']
-        st.dataframe(materials_summary.style.format({
-            'Total Value': '${:,.2f}',
-            'Total Quantity': '{:,.2f}'
-        }))
-        
-    else:
-        st.info("No project data available")
-
-def load_bid_history():
-    """Load bid history from the database"""
-    return db.get_bids() or []
-
-def save_bid(bid_data):
-    """Save bid to session state"""
-    st.session_state.bid_history.append(bid_data)
+        st.error(f"Error getting location coordinates: {str(e)}")
+    return None
 
 def get_recent_bids(worksheet, project_name=None):
     """Get recent bids from Google Sheet"""
@@ -640,7 +603,21 @@ def get_recent_bids(worksheet, project_name=None):
         if project_name:
             df = df[df['Project Name'] == project_name]
         
-        # Convert to list of dicts and return last 5 entries
+        # Save contractors and projects to session state
+        st.session_state.saved_contractors.update(df['Contractor'].unique())
+        for _, row in df.iterrows():
+            project_name = row['Project Name']
+            if project_name not in st.session_state.saved_projects:
+                st.session_state.saved_projects[project_name] = {
+                    'owner': row['Project Owner'],
+                    'location': row['Location']
+                }
+                # Get coordinates for new locations
+                if project_name not in st.session_state.project_locations:
+                    coords = get_location_coordinates(row['Location'])
+                    if coords:
+                        st.session_state.project_locations[project_name] = coords
+        
         return df.to_dict('records')[-5:]
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
@@ -664,13 +641,36 @@ def bid_entry_page(spreadsheet):
         # Create the form
         with st.form("bid_entry_form"):
             date = st.date_input("Date", datetime.today())
-            contractor = st.text_input("Contractor", value="Manny's Concrete NJ")
-            project_name = st.text_input("Project Name")
-            project_owner = st.text_input("Project Owner")
-            location = st.text_input("Location")
-            unit_number = st.text_input("Unit Number")
             
-            # Use dropdown for materials
+            # Use saved contractors for suggestions
+            contractor = st.selectbox(
+                "Contractor",
+                options=sorted(list(st.session_state.saved_contractors)) + ["Other"],
+                index=0 if "Manny's Concrete NJ" in st.session_state.saved_contractors else -1
+            )
+            if contractor == "Other":
+                contractor = st.text_input("Enter new contractor name")
+            
+            # Use saved projects for suggestions
+            saved_projects = list(st.session_state.saved_projects.keys())
+            project_selection = st.selectbox(
+                "Project",
+                options=["New Project"] + saved_projects,
+                index=0
+            )
+            
+            if project_selection == "New Project":
+                project_name = st.text_input("Project Name")
+                project_owner = st.text_input("Project Owner")
+                location = st.text_input("Location")
+            else:
+                project_name = project_selection
+                project_owner = st.session_state.saved_projects[project_selection]['owner']
+                location = st.session_state.saved_projects[project_selection]['location']
+                st.write(f"Project Owner: {project_owner}")
+                st.write(f"Location: {location}")
+            
+            unit_number = st.text_input("Unit Number")
             material = st.selectbox("Material", options=materials_list)
             
             # Get default unit based on selected material
@@ -705,22 +705,37 @@ def bid_entry_page(spreadsheet):
                 
                 try:
                     worksheet.append_row(row_data)
+                    
+                    # Update saved data
+                    st.session_state.saved_contractors.add(contractor)
+                    st.session_state.saved_projects[project_name] = {
+                        'owner': project_owner,
+                        'location': location
+                    }
+                    
+                    # Get coordinates for new location
+                    if project_name not in st.session_state.project_locations:
+                        coords = get_location_coordinates(location)
+                        if coords:
+                            st.session_state.project_locations[project_name] = coords
+                    
                     st.success("Bid successfully added!")
-                    time.sleep(0.5)  # Brief pause for the success message
-                    st.experimental_rerun()  # Refresh to show updated history
+                    time.sleep(0.5)
+                    st.experimental_rerun()
                 except Exception as e:
                     st.error(f"Error adding bid: {str(e)}")
     
     with col2:
         st.subheader("Recent Bids")
-        if project_name:
-            recent_bids = get_recent_bids(worksheet, project_name)
+        if project_selection != "New Project":
+            recent_bids = get_recent_bids(worksheet, project_selection)
         else:
             recent_bids = get_recent_bids(worksheet)
             
         if recent_bids:
-            for bid in reversed(recent_bids):  # Show bids in reverse chronological order
+            for bid in reversed(recent_bids):
                 with st.expander(f"{bid['Project Name']} - {bid['Date']}"):
+                    st.write(f"Contractor: {bid['Contractor']}")
                     st.write(f"Project Owner: {bid['Project Owner']}")
                     st.write(f"Location: {bid['Location']}")
                     st.write(f"Material: {bid['Material']}")
@@ -729,6 +744,55 @@ def bid_entry_page(spreadsheet):
                     st.write(f"Total: ${bid['Total']:.2f}")
         else:
             st.info("No bid history available")
+
+def project_status_dashboard(spreadsheet):
+    st.header("Project Status Overview")
+    
+    worksheet = spreadsheet.worksheet("Master Sheet")
+    data = worksheet.get_all_records()
+    
+    if data:
+        df = pd.DataFrame(data)
+        
+        # Create map with all project locations
+        st.subheader("Project Locations")
+        m = folium.Map(location=[40.0583, -74.4057], zoom_start=8)  # Centered on NJ
+        
+        for project, coords in st.session_state.project_locations.items():
+            project_data = df[df['Project Name'] == project]
+            if not project_data.empty:
+                total_value = project_data['Total'].sum()
+                folium.Marker(
+                    coords,
+                    popup=f"{project}<br>Total: ${total_value:,.2f}",
+                    tooltip=project
+                ).add_to(m)
+        
+        folium_static(m)
+        
+        # Project summary
+        st.subheader("Project Summary")
+        project_summary = df.groupby('Project Name').agg({
+            'Total': 'sum',
+            'Project Owner': 'first',
+            'Location': 'first',
+            'Contractor': lambda x: ', '.join(set(x))
+        }).reset_index()
+        
+        st.dataframe(project_summary.style.format({
+            'Total': '${:,.2f}'
+        }))
+        
+        # Contractor summary
+        st.subheader("Contractor Summary")
+        contractor_summary = df.groupby('Contractor')['Total'].sum().reset_index()
+        contractor_summary = contractor_summary.sort_values('Total', ascending=False)
+        
+        st.dataframe(contractor_summary.style.format({
+            'Total': '${:,.2f}'
+        }))
+    else:
+        st.info("No project status data available")
 
 def main():
     st.title("📊 Bid Tracker")
@@ -739,13 +803,15 @@ def main():
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
         
-    # Add navigation
-    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking"])
+    # Add navigation with Project Status
+    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":
         bid_entry_page(spreadsheet)
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
+    elif page == "Project Status":
+        project_status_dashboard(spreadsheet)
 
 if __name__ == "__main__":
     main()

@@ -364,11 +364,20 @@ def main():
                 
                 with col2:
                     # Auto-suggest unit based on material
+                    unit_options = ["SF", "SY", "LF", "Unit"]
                     suggested_unit = material_stats.get(material, {}).get('most_common_unit', 'SF')
+                    default_index = 0  # Default to first option
+                    
+                    # Try to find the suggested unit in our options
+                    try:
+                        default_index = unit_options.index(suggested_unit)
+                    except ValueError:
+                        pass  # If not found, keep default index
+                    
                     unit = st.selectbox(
                         "Unit",
-                        options=["SF", "SY", "LF", "Unit"],
-                        index=["SF", "SY", "LF", "Unit"].index(suggested_unit)
+                        options=unit_options,
+                        index=default_index
                     )
                     
                     quantity = st.number_input("Quantity", min_value=0.0, step=0.1)

@@ -1,26 +1,15 @@
 import streamlit as st
+from database import Database
 import pandas as pd
 from datetime import datetime, timedelta
 import os
 import time
+from geopy.geocoders import Nominatim
 import json
-from database import Database
-import requests
+import db
 
 # Initialize database
 db = Database()
-
-def format_sheet_name(project_name):
-    """Format project name to be valid as a sheet name"""
-    # Remove invalid characters and limit length
-    valid_name = "".join(c for c in project_name if c.isalnum() or c in " -_")
-    return valid_name[:31]  # Sheets names limited to 31 chars
-
-# Add to session state initialization at the top
-if 'project_locations' not in st.session_state:
-    st.session_state.project_locations = {}
-if 'project_checklists' not in st.session_state:
-    st.session_state.project_checklists = {}
 
 # Initialize session state
 if 'materials' not in st.session_state:
@@ -41,6 +30,12 @@ if 'cache' not in st.session_state:
         'materials': None,
         'materials_last_refresh': None
     }
+
+# Add to session state initialization at the top
+if 'project_locations' not in st.session_state:
+    st.session_state.project_locations = {}
+if 'project_checklists' not in st.session_state:
+    st.session_state.project_checklists = {}
 
 # Set page config for mobile
 st.set_page_config(
@@ -169,17 +164,27 @@ def get_spreadsheet(sheets_client):
         return None
 
 def get_google_services():
-    """Initialize Google services using existing database connection"""
     try:
-        # Get the existing spreadsheet connection from the database
-        spreadsheet = db.spreadsheet
-        if spreadsheet:
-            return None, None, spreadsheet
-        else:
-            st.error("Could not connect to spreadsheet")
+        if 'gcp_service_account' not in st.secrets:
+            st.error("No GCP service account secrets found")
             return None, None, None
+            
+        credentials_dict = st.secrets["gcp_service_account"]
+        
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_dict,
+            scopes=SCOPES
+        )
+        
+        drive_service = build('drive', 'v3', credentials=credentials)
+        sheets_client = gspread.authorize(credentials)
+        
+        # Get spreadsheet using permanent ID
+        spreadsheet = get_spreadsheet(sheets_client)
+        
+        return drive_service, sheets_client, spreadsheet
     except Exception as e:
-        st.error(f"Error connecting to Google services: {str(e)}")
+        st.error(f"Credentials Error: {str(e)}")
         return None, None, None
 
 def create_and_share_spreadsheet(drive_service, sheets_client):
@@ -463,20 +468,103 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
         st.error(f"Error adding material: {str(e)}")
         return False
 
-def display_bid_history(spreadsheet, project_name):
-    """Display bid history for a project"""
+def display_bid_history(spreadsheet, project_name, project_owner):
     try:
-        sheet_name = format_sheet_name(project_name)
-        worksheet = spreadsheet.worksheet(sheet_name)
-        records = worksheet.get_all_records()
+        time.sleep(1)  # Add delay to prevent quota issues
+        project_sheet = spreadsheet.worksheet(project_name)
+        data = project_sheet.get_all_records()
         
-        if records:
-            df = pd.DataFrame(records)
-            st.dataframe(df)
-        else:
-            st.info("No bid history found for this project")
+        if not data:
+            st.info(f"No bid history found for {project_name}")
+            return
+        
+        st.markdown(f"### Bid History for {project_name}")
+        
+        # Convert data to DataFrame for better display
+        df = pd.DataFrame(data)
+        
+        # Add running total
+        df['Running Total'] = df['Total'].cumsum()
+        
+        # Format currency columns
+        currency_columns = ['Price', 'Total', 'Running Total']
+        for col in currency_columns:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: f"${float(str(x).replace('$', '').replace(',', '')):,.2f}")
+        
+        # Display the main bid history table
+        st.dataframe(df, use_container_width=True)
+        
+        # Calculate contractor totals
+        contractor_totals = {}
+        for row in data:
+            contractor = row['Contractor']
+            total = float(str(row['Total']).replace('$', '').replace(',', ''))
+            contractor_totals[contractor] = contractor_totals.get(contractor, 0) + total
+        
+        # Display contractor totals
+        st.markdown("### Contractor Totals")
+        
+        # Create columns for contractor totals
+        cols = st.columns(min(3, len(contractor_totals)))
+        for idx, (contractor, total) in enumerate(sorted(contractor_totals.items())):
+            col_idx = idx % len(cols)
+            with cols[col_idx]:
+                st.metric(
+                    label=contractor,
+                    value=f"${total:,.2f}",
+                    help=f"Total bids for {contractor}"
+                )
+        
+        # Calculate and display project total
+        total_bids = len(data)
+        project_total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
+        
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Bids", total_bids)
+        with col2:
+            st.metric("Project Total", f"${project_total:,.2f}")
+        with col3:
+            if total_bids > 0:
+                avg_bid = project_total / total_bids
+                st.metric("Average Bid", f"${avg_bid:,.2f}")
+        
+        # Material breakdown
+        st.markdown("### Material Breakdown")
+        material_totals = {}
+        for row in data:
+            material = row['Material']
+            total = float(str(row['Total']).replace('$', '').replace(',', ''))
+            if material not in material_totals:
+                material_totals[material] = {
+                    'total': total,
+                    'count': 1,
+                    'avg': total
+                }
+            else:
+                material_totals[material]['total'] += total
+                material_totals[material]['count'] += 1
+                material_totals[material]['avg'] = material_totals[material]['total'] / material_totals[material]['count']
+        
+        # Display material breakdown
+        material_df = pd.DataFrame([
+            {
+                'Material': material,
+                'Total': f"${stats['total']:,.2f}",
+                'Count': stats['count'],
+                'Average': f"${stats['avg']:,.2f}"
+            }
+            for material, stats in material_totals.items()
+        ])
+        st.dataframe(material_df, use_container_width=True)
+            
     except Exception as e:
-        st.info("No bid history available for this project yet")
+        if "429" in str(e):
+            st.error("Rate limit reached. Please wait a moment and try again.")
+        else:
+            st.error(f"Error displaying bid history: {str(e)}")
 
 def create_new_project(spreadsheet, project_name, owner_name):
     try:
@@ -538,7 +626,7 @@ def project_tracking_dashboard(spreadsheet):
     
     for project_name, owner in projects:
         try:
-            sheet_name = format_sheet_name(project_name)
+            sheet_name = format_sheet_name(project_name, owner)
             project_sheet = spreadsheet.worksheet(sheet_name)
             bids = project_sheet.get_all_records()
             
@@ -607,7 +695,7 @@ def project_tracking_dashboard(spreadsheet):
                     st.markdown(f"**Lowest Bidder:** {project['Lowest Bidder']}")
                 
                 # Get contractor breakdown for this project
-                sheet_name = format_sheet_name(project['Project'])
+                sheet_name = format_sheet_name(project['Project'], project['Owner'])
                 project_sheet = spreadsheet.worksheet(sheet_name)
                 bids = project_sheet.get_all_records()
                 
@@ -642,20 +730,16 @@ def project_tracking_dashboard(spreadsheet):
                 ])
                 st.dataframe(contractor_df, use_container_width=True)
 
-def get_coordinates(address):
+def geocode_address(address):
     try:
-        # Using OpenStreetMap Nominatim API (no key required)
-        url = f"https://nominatim.openstreetmap.org/search?q={address}&format=json&limit=1"
-        headers = {'User-Agent': 'BidTracker/1.0'}
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        
-        if data:
-            return float(data[0]['lat']), float(data[0]['lon'])
-        return None, None
+        geolocator = Nominatim(user_agent="bid_tracker")
+        location = geolocator.geocode(address)
+        if location:
+            return [location.latitude, location.longitude]
+        return None
     except Exception as e:
         st.error(f"Error geocoding address: {str(e)}")
-        return None, None
+        return None
 
 def project_status_dashboard(spreadsheet):
     st.markdown("## 📍 Project Status & Location Tracking")
@@ -683,57 +767,24 @@ def project_status_dashboard(spreadsheet):
         if project_key not in st.session_state.project_checklists:
             st.session_state.project_checklists[project_key] = {}
         
-        # Create columns for map and location management
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # Display map with all locations
-            if st.session_state.project_locations[project_key]:
-                locations_df = pd.DataFrame([
-                    {
-                        'lat': loc.get('latitude', 40.0583),
-                        'lon': loc.get('longitude', -74.4057),
-                        'status': loc.get('status', 'Pending')
-                    }
-                    for loc in st.session_state.project_locations[project_key]
-                ])
-                st.map(locations_df)
-            else:
-                # Default map centered on New Jersey
-                st.map(pd.DataFrame({
-                    'lat': [40.0583],
-                    'lon': [-74.4057]
-                }))
-        
-        with col2:
-            # Add new location
-            st.markdown("### Add Location")
-            new_location = st.text_input("Enter Address")
-            
-            if st.button("Add Location"):
-                if new_location:
-                    # Get coordinates from OpenStreetMap
-                    latitude, longitude = get_coordinates(new_location)
-                    
-                    if latitude and longitude:
-                        st.session_state.project_locations[project_key].append({
-                            'address': new_location,
-                            'latitude': latitude,
-                            'longitude': longitude,
-                            'status': 'Pending'
-                        })
-                        st.success(f"Added location: {new_location}")
-                        st.rerun()
-                    else:
-                        st.error("Could not find coordinates for this address")
-        
         # Location list and checklists
         st.markdown("### Project Locations")
+        
+        # Add new location
+        st.markdown("#### Add New Location")
+        new_location = st.text_input("Location Name/Address")
+        if st.button("Add Location"):
+            if new_location:
+                st.session_state.project_locations[project_key].append({
+                    'address': new_location,
+                    'status': 'Pending'
+                })
+                st.success(f"Added location: {new_location}")
+                st.rerun()
+        
+        # Display existing locations
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
             with st.expander(f"📍 {location['address']}"):
-                # Location coordinates
-                st.markdown(f"**Coordinates:** {location.get('latitude', 40.0583):.4f}, {location.get('longitude', -74.4057):.4f}")
-                
                 # Status selection
                 status = st.selectbox(
                     "Status",
@@ -859,7 +910,8 @@ def main():
             
             # Display bid history for the selected project
             try:
-                display_bid_history(spreadsheet, selected_project)
+                sheet_name = format_sheet_name(selected_project, project_owner)
+                display_bid_history(spreadsheet, selected_project, project_owner)
             except Exception as e:
                 st.error(f"Error displaying bid history: {str(e)}")
             

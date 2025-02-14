@@ -77,8 +77,9 @@ def get_contractor_location(contractor_name):
 
 def get_google_services():
     try:
-        credentials = service_account.Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
+        # Use credentials file directly
+        credentials = service_account.Credentials.from_service_account_file(
+            'credentials.json',
             scopes=SCOPES
         )
         
@@ -87,6 +88,7 @@ def get_google_services():
         return drive_service, sheets_client
     except Exception as e:
         st.error(f"Credentials Error: {str(e)}")
+        st.error("Please make sure your credentials.json file is properly formatted")
         return None, None
 
 def create_and_share_spreadsheet(drive_service, sheets_client):

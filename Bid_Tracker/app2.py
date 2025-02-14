@@ -115,15 +115,24 @@ def get_or_create_spreadsheet(sheets_client):
 
 def get_spreadsheet(sheets_client):
     try:
-        # Check if spreadsheet ID is in secrets
-        if 'spreadsheet_id' in st.secrets:
+        # Initialize session state for spreadsheet ID if not exists
+        if 'spreadsheet_id' not in st.session_state:
+            st.session_state.spreadsheet_id = None
+            st.session_state.is_configured = False
+
+        # If already configured, use the saved ID
+        if st.session_state.is_configured and st.session_state.spreadsheet_id:
             try:
-                spreadsheet = sheets_client.open_by_key(st.secrets['spreadsheet_id'])
-                return spreadsheet
+                return sheets_client.open_by_key(st.session_state.spreadsheet_id)
             except Exception as e:
-                st.error(f"Error opening saved spreadsheet: {str(e)}")
+                st.error(f"Error opening spreadsheet: {str(e)}")
+                st.session_state.is_configured = False
+                return None
+
+        # Show configuration interface
+        st.markdown("### 📊 Spreadsheet Configuration")
+        st.info("This is a one-time setup. Enter your spreadsheet ID below.")
         
-        # If no saved ID, show input
         col1, col2 = st.columns([3, 1])
         with col1:
             spreadsheet_id = st.text_input(
@@ -136,21 +145,25 @@ def get_spreadsheet(sheets_client):
                     try:
                         # Test connection
                         spreadsheet = sheets_client.open_by_key(spreadsheet_id)
-                        
-                        # Write to secrets.toml
-                        with open('.streamlit/secrets.toml', 'a') as f:
-                            f.write(f'\nspreadsheet_id = "{spreadsheet_id}"')
-                        
+                        st.session_state.spreadsheet_id = spreadsheet_id
+                        st.session_state.is_configured = True
                         st.success("Successfully connected to spreadsheet!")
-                        st.info("Please restart the app to complete setup")
-                        st.stop()
+                        st.rerun()
+                        return spreadsheet
                     except Exception as e:
                         st.error(f"Error connecting to spreadsheet: {str(e)}")
                         return None
                 else:
                     st.error("Please enter a spreadsheet ID")
                     return None
-                    
+
+        st.markdown("---")
+        st.markdown("#### How to find your Spreadsheet ID:")
+        st.markdown("1. Open your Google Sheet")
+        st.markdown("2. Copy the URL")
+        st.markdown("3. The ID is the long string between /d/ and /edit")
+        st.markdown("Example: https://docs.google.com/spreadsheets/d/**THIS-IS-YOUR-SPREADSHEET-ID**/edit")
+        
         return None
         
     except Exception as e:
@@ -393,24 +406,25 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
         st.error(f"Error adding material: {str(e)}")
 
 def main():
-    # Debug secrets (you can remove this later)
-    if st.secrets["gcp_service_account"]:
-        st.write("GCP credentials found!")
-    
     st.title("📊 Bid Tracker")
+    
+    # Add a way to reset configuration if needed
+    if st.session_state.get('is_configured', False):
+        if st.sidebar.button("Reset Spreadsheet Configuration"):
+            st.session_state.is_configured = False
+            st.session_state.spreadsheet_id = None
+            st.rerun()
     
     # Initialize Google services and get spreadsheet
     drive_service, sheets_client, spreadsheet = get_google_services()
     if not drive_service or not sheets_client:
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
-    
+        
     # Don't proceed if no spreadsheet is connected
     if not spreadsheet:
-        st.info("To find your spreadsheet ID: Open your Google Sheet → Share → Copy link → ID is the long string in the URL")
-        st.info("Example: https://docs.google.com/spreadsheets/d/THIS-IS-YOUR-SPREADSHEET-ID/edit")
         return
-    
+        
     # Store spreadsheet ID in session state
     if 'spreadsheet_id' not in st.session_state:
         st.session_state.spreadsheet_id = spreadsheet.id

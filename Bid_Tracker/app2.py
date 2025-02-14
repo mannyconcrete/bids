@@ -6,8 +6,6 @@ import time
 import json
 from database import Database
 import requests
-from google.oauth2 import service_account
-import gspread
 
 # Initialize database
 db = Database()
@@ -171,24 +169,15 @@ def get_spreadsheet(sheets_client):
         return None
 
 def get_google_services():
-    """Initialize Google services using service account"""
+    """Initialize Google services using existing database connection"""
     try:
-        # Get the credentials from streamlit secrets
-        credentials = service_account.Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive.file",
-            ],
-        )
-        
-        # Create Google Sheets client
-        client = gspread.authorize(credentials)
-        
-        # Open the spreadsheet
-        spreadsheet = client.open(st.secrets["spreadsheet_name"])
-        
-        return None, client, spreadsheet  # Keeping the same return structure
+        # Get the existing spreadsheet connection from the database
+        spreadsheet = db.spreadsheet
+        if spreadsheet:
+            return None, None, spreadsheet
+        else:
+            st.error("Could not connect to spreadsheet")
+            return None, None, None
     except Exception as e:
         st.error(f"Error connecting to Google services: {str(e)}")
         return None, None, None

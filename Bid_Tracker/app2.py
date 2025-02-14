@@ -170,27 +170,16 @@ def get_spreadsheet(sheets_client):
 def get_google_services():
     """Initialize Google services"""
     try:
-        credentials = {
-            "type": "service_account",
-            "project_id": st.secrets["GOOGLE_PROJECT_ID"],
-            "private_key_id": st.secrets["GOOGLE_PRIVATE_KEY_ID"],
-            "private_key": st.secrets["GOOGLE_PRIVATE_KEY"],
-            "client_email": st.secrets["GOOGLE_CLIENT_EMAIL"],
-            "client_id": st.secrets["GOOGLE_CLIENT_ID"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": st.secrets["GOOGLE_CLIENT_X509_CERT_URL"]
-        }
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive.file",
+            ],
+        )
         
-        scopes = [
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive.file'
-        ]
-        
-        creds = service_account.Credentials.from_service_account_info(credentials, scopes=scopes)
-        client = gspread.authorize(creds)
-        spreadsheet = client.open_by_key(st.secrets["GOOGLE_SPREADSHEET_ID"])
+        client = gspread.authorize(credentials)
+        spreadsheet = client.open_by_key(st.secrets["spreadsheet_id"])
         
         return None, client, spreadsheet
     except Exception as e:

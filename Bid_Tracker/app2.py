@@ -105,15 +105,30 @@ def create_and_share_spreadsheet(drive_service, sheets_client):
     try:
         sheet_name = "Bid Results Tracker"
         try:
+            # Try to open existing spreadsheet
             spreadsheet = sheets_client.open(sheet_name)
+            st.success(f"Found existing spreadsheet: {sheet_name}")
         except:
+            # Create new spreadsheet
             spreadsheet = sheets_client.create(sheet_name)
             worksheet = spreadsheet.sheet1
             worksheet.update_title("Master Sheet")
+            
+            # Set up headers
             headers = ["Date", "Contractor", "Project Name", "Project Owner", 
                       "Location", "Unit Number", "Material", "Unit", 
                       "Quantity", "Price", "Total"]
             worksheet.append_row(headers)
+            
+            # Share with your email
+            spreadsheet.share(
+                'mannysconcretenj@gmail.com',  # Replace with your email
+                perm_type='user',
+                role='writer'
+            )
+            
+            st.success(f"Created new spreadsheet: {sheet_name}")
+            
         return spreadsheet
     except Exception as e:
         st.error(f"Error creating spreadsheet: {str(e)}")

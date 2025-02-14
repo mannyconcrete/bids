@@ -168,20 +168,10 @@ def get_spreadsheet(sheets_client):
         return None
 
 def get_google_services():
-    """Initialize Google services"""
+    """Initialize Google services using existing database connection"""
     try:
-        credentials = service_account.Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive.file",
-            ],
-        )
-        
-        client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(st.secrets["spreadsheet_id"])
-        
-        return None, client, spreadsheet
+        # Get the existing spreadsheet connection from the database
+        return db.get_drive_service(), db.get_sheets_client(), db.get_spreadsheet()
     except Exception as e:
         st.error(f"Error connecting to Google services: {str(e)}")
         return None, None, None

@@ -77,7 +77,26 @@ def get_contractor_location(contractor_name):
 
 def get_google_services():
     try:
-        # Create credentials dict from environment variables
+        # First, check if we can access secrets
+        if not hasattr(st, 'secrets'):
+            st.error("No secrets found. Make sure secrets.toml is in the .streamlit directory")
+            return None, None
+            
+        # Try to get all required secrets
+        required_keys = [
+            "type", "project_id", "private_key_id", "private_key",
+            "client_email", "client_id", "auth_uri", "token_uri",
+            "auth_provider_x509_cert_url", "client_x509_cert_url",
+            "universe_domain"
+        ]
+        
+        missing_keys = [key for key in required_keys if key not in st.secrets]
+        if missing_keys:
+            st.error(f"Missing required secrets: {', '.join(missing_keys)}")
+            st.info("Please check your .streamlit/secrets.toml file")
+            return None, None
+            
+        # Create credentials dict from secrets
         credentials_dict = {
             "type": st.secrets["type"],
             "project_id": st.secrets["project_id"],
@@ -102,7 +121,7 @@ def get_google_services():
         return drive_service, sheets_client
     except Exception as e:
         st.error(f"Credentials Error: {str(e)}")
-        st.error("Please check Streamlit Cloud secrets configuration")
+        st.error("Please check your secrets configuration")
         return None, None
 
 def create_and_share_spreadsheet(drive_service, sheets_client):
@@ -194,6 +213,9 @@ def share_spreadsheet(drive_service, spreadsheet):
         st.error(f"Error sharing spreadsheet: {str(e)}")
 
 def main():
+    # Debug secrets
+    st.write("Available secrets:", list(st.secrets.keys()) if hasattr(st, 'secrets') else "No secrets found")
+    
     st.title("📊 Bid Tracker")
     
     # Initialize Google services

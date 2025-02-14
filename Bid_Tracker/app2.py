@@ -6,12 +6,8 @@ import time
 import json
 from database import Database
 import requests
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
 from google.oauth2 import service_account
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-import pickle
+import gspread
 
 # Initialize database
 db = Database()
@@ -175,29 +171,27 @@ def get_spreadsheet(sheets_client):
         return None
 
 def get_google_services():
-    """Initialize Google Drive and Sheets services"""
-    creds = None
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-    
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
-    
+    """Initialize Google services using service account"""
     try:
-        drive_service = build('drive', 'v3', credentials=creds)
-        sheets_service = build('sheets', 'v4', credentials=creds)
-        return drive_service, sheets_service
+        # Get the credentials from streamlit secrets
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive.file",
+            ],
+        )
+        
+        # Create Google Sheets client
+        client = gspread.authorize(credentials)
+        
+        # Open the spreadsheet
+        spreadsheet = client.open(st.secrets["spreadsheet_name"])
+        
+        return None, client, spreadsheet  # Keeping the same return structure
     except Exception as e:
-        st.error(f"Error initializing Google services: {str(e)}")
-        return None, None
+        st.error(f"Error connecting to Google services: {str(e)}")
+        return None, None, None
 
 def create_and_share_spreadsheet(drive_service, sheets_client):
     try:

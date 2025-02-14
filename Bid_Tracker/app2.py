@@ -739,15 +739,13 @@ def main():
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
         
-    # Add navigation with Project Status tab
-    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
+    # Add navigation
+    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking"])
     
     if page == "Bid Entry":
         bid_entry_page(spreadsheet)
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
-    elif page == "Project Status":
-        project_status_dashboard(spreadsheet)
 
 if __name__ == "__main__":
     main()

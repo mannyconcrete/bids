@@ -12,6 +12,10 @@ from google.oauth2 import service_account
 # Initialize database
 db = Database()
 
+# Initialize session state for bid history if it doesn't exist
+if 'bid_history' not in st.session_state:
+    st.session_state.bid_history = []
+
 def format_sheet_name(project_name):
     """Format project name to be valid as a sheet name"""
     # Remove invalid characters and limit length
@@ -584,8 +588,8 @@ def load_bid_history():
     return db.get_bids() or []
 
 def save_bid(bid_data):
-    """Save bid to the database"""
-    db.add_bid(bid_data)
+    """Save bid to session state"""
+    st.session_state.bid_history.append(bid_data)
 
 def bid_entry_page(spreadsheet):
     st.header("Bid Entry")
@@ -594,9 +598,6 @@ def bid_entry_page(spreadsheet):
     materials_sheet = spreadsheet.worksheet("Materials")
     materials_data = materials_sheet.get_all_records()
     materials_list = [item.get('Material', '') for item in materials_data if item.get('Material')]
-    
-    # Load bid history
-    bid_history = load_bid_history()
     
     # Create columns for form and history
     col1, col2 = st.columns([2, 1])
@@ -645,7 +646,7 @@ def bid_entry_page(spreadsheet):
                     "total": total
                 }
                 
-                # Save to database
+                # Save to session state
                 save_bid(bid_data)
                 
                 # Save to Google Sheet
@@ -674,8 +675,8 @@ def bid_entry_page(spreadsheet):
     
     with col2:
         st.subheader("Recent Bids")
-        if bid_history:
-            for bid in reversed(bid_history[-5:]):  # Show last 5 bids
+        if st.session_state.bid_history:
+            for bid in reversed(st.session_state.bid_history[-5:]):  # Show last 5 bids
                 with st.expander(f"{bid['project_name']} - {bid['date']}"):
                     st.write(f"Project Owner: {bid['project_owner']}")
                     st.write(f"Location: {bid['location']}")

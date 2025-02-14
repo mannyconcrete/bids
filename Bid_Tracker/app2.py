@@ -6,6 +6,12 @@ import time
 import json
 from database import Database
 import requests
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+import pickle
 
 # Initialize database
 db = Database()
@@ -169,28 +175,29 @@ def get_spreadsheet(sheets_client):
         return None
 
 def get_google_services():
+    """Initialize Google Drive and Sheets services"""
+    creds = None
+    if os.path.exists('token.pickle'):
+        with open('token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+    
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                'credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.pickle', 'wb') as token:
+            pickle.dump(creds, token)
+    
     try:
-        if 'gcp_service_account' not in st.secrets:
-            st.error("No GCP service account secrets found")
-            return None, None, None
-            
-        credentials_dict = st.secrets["gcp_service_account"]
-        
-        credentials = service_account.Credentials.from_service_account_info(
-            credentials_dict,
-            scopes=SCOPES
-        )
-        
-        drive_service = build('drive', 'v3', credentials=credentials)
-        sheets_client = gspread.authorize(credentials)
-        
-        # Get spreadsheet using permanent ID
-        spreadsheet = get_spreadsheet(sheets_client)
-        
-        return drive_service, sheets_client, spreadsheet
+        drive_service = build('drive', 'v3', credentials=creds)
+        sheets_service = build('sheets', 'v4', credentials=creds)
+        return drive_service, sheets_service
     except Exception as e:
-        st.error(f"Credentials Error: {str(e)}")
-        return None, None, None
+        st.error(f"Error initializing Google services: {str(e)}")
+        return None, None
 
 def create_and_share_spreadsheet(drive_service, sheets_client):
     try:
@@ -477,16 +484,38 @@ def display_bid_history(spreadsheet, project_name):
     """Display bid history for a project"""
     try:
         sheet_name = format_sheet_name(project_name)
-        worksheet = spreadsheet.worksheet(sheet_name)
-        records = worksheet.get_all_records()
+        drive_service, sheets_service = get_google_services()
         
-        if records:
-            df = pd.DataFrame(records)
-            st.dataframe(df)
-        else:
+        if not drive_service or not sheets_service:
+            st.error("Could not initialize Google services")
+            return
+        
+        # Get the spreadsheet ID
+        spreadsheet_id = spreadsheet.id
+        
+        # Get the data using the Sheets API
+        range_name = f"{sheet_name}!A:Z"  # Get all columns
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=range_name
+        ).execute()
+        
+        values = result.get('values', [])
+        if not values:
             st.info("No bid history found for this project")
+            return
+            
+        # Convert to DataFrame
+        headers = values[0]
+        data = values[1:]
+        df = pd.DataFrame(data, columns=headers)
+        
+        # Display the DataFrame
+        st.dataframe(df)
+        
     except Exception as e:
-        st.error(f"Error displaying bid history: {str(e)}")
+        st.error(f"Error accessing bid history: {str(e)}")
+        st.info("Please make sure the project has been created and has bid entries")
 
 def create_new_project(spreadsheet, project_name, owner_name):
     try:
@@ -813,13 +842,13 @@ def main():
     st.title("📊 Bid Tracker")
     
     # Initialize Google services and get spreadsheet
-    drive_service, sheets_client, spreadsheet = get_google_services()
-    if not drive_service or not sheets_client:
+    drive_service, sheets_service = get_google_services()
+    if not drive_service or not sheets_service:
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
         
     # Don't proceed if no spreadsheet is connected
-    if not spreadsheet:
+    if not drive_service or not sheets_service:
         st.error("Could not connect to the bid tracking spreadsheet.")
         return
     
@@ -830,9 +859,9 @@ def main():
         st.markdown("### New Bid")
         
         # Get materials list and stats
-        materials_data = get_materials_from_sheet(spreadsheet)
+        materials_data = get_materials_from_sheet(drive_service)
         material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
-        material_stats = get_material_stats(spreadsheet)
+        material_stats = get_material_stats(drive_service)
         
         # Add "New Project" option to project selection
         projects = db.get_projects()
@@ -853,7 +882,7 @@ def main():
                 
             if st.button("Create Project"):
                 if new_project_name and new_project_owner:
-                    if create_new_project(spreadsheet, new_project_name, new_project_owner):
+                    if create_new_project(drive_service, new_project_name, new_project_owner):
                         st.rerun()
                 else:
                     st.error("Please enter both project name and owner")
@@ -869,7 +898,7 @@ def main():
             
             # Display bid history for the selected project
             try:
-                display_bid_history(spreadsheet, selected_project)
+                display_bid_history(drive_service, selected_project)
             except Exception as e:
                 st.error(f"Error displaying bid history: {str(e)}")
             
@@ -877,9 +906,9 @@ def main():
             # ... (keep existing code) ...
     
     elif page == "Project Tracking":
-        project_tracking_dashboard(spreadsheet)
+        project_tracking_dashboard(drive_service)
     elif page == "Project Status":
-        project_status_dashboard(spreadsheet)
+        project_status_dashboard(drive_service)
 
 if __name__ == "__main__":
     main()

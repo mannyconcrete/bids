@@ -799,24 +799,23 @@ def project_status_dashboard(spreadsheet):
         with col2:
             # Add new location
             st.markdown("### Add Location")
-            new_location = st.text_input("Enter Address")
+            new_location = st.text_input("Location Name/Address")
+            col1, col2 = st.columns(2)
+            with col1:
+                latitude = st.number_input("Latitude", value=40.0583, format="%.4f")
+            with col2:
+                longitude = st.number_input("Longitude", value=-74.4057, format="%.4f")
             
             if st.button("Add Location"):
                 if new_location:
-                    # Get coordinates from Google Maps
-                    latitude, longitude = get_coordinates(new_location)
-                    
-                    if latitude and longitude:
-                        st.session_state.project_locations[project_key].append({
-                            'address': new_location,
-                            'latitude': latitude,
-                            'longitude': longitude,
-                            'status': 'Pending'
-                        })
-                        st.success(f"Added location: {new_location}")
-                        st.rerun()
-                    else:
-                        st.error("Could not find coordinates for this address")
+                    st.session_state.project_locations[project_key].append({
+                        'address': new_location,
+                        'latitude': latitude,
+                        'longitude': longitude,
+                        'status': 'Pending'
+                    })
+                    st.success(f"Added location: {new_location}")
+                    st.rerun()
         
         # Location list and checklists
         st.markdown("### Project Locations")

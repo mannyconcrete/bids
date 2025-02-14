@@ -243,6 +243,21 @@ def delete_row(spreadsheet, sheet_name, row_index):
         st.error(f"Error deleting row: {str(e)}")
         return False
 
+def format_sheet_name(project_name, owner_name):
+    """Format sheet name to be valid for Google Sheets"""
+    try:
+        # Replace invalid characters and limit length
+        sheet_name = f"{project_name} - {owner_name}"
+        # Remove or replace invalid characters
+        invalid_chars = '[]:*?/\\'
+        for char in invalid_chars:
+            sheet_name = sheet_name.replace(char, '')
+        # Limit to 100 characters (Google Sheets limit)
+        return sheet_name[:100].strip()
+    except Exception as e:
+        st.error(f"Error formatting sheet name: {str(e)}")
+        return f"{project_name} - {owner_name}"  # Return basic format as fallback
+
 def save_to_sheets(spreadsheet, data, project_name):
     try:
         time.sleep(1)  # Add delay before saving
@@ -292,8 +307,9 @@ def save_to_sheets(spreadsheet, data, project_name):
         project_sheet.append_row(project_data)
         
         # Clear cache to force refresh
-        st.session_state.cache['spreadsheet'] = None
-        st.session_state.cache['materials'] = None
+        if 'cache' in st.session_state:
+            st.session_state.cache['spreadsheet'] = None
+            st.session_state.cache['materials'] = None
         
         st.success("Bid saved successfully!")
         
@@ -459,10 +475,17 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
         st.error(f"Error adding material: {str(e)}")
         return False
 
-def display_bid_history(spreadsheet, project_name, project_owner):
+def display_bid_history(spreadsheet, project_name, owner_name):
     try:
         time.sleep(1)  # Add delay to prevent quota issues
-        project_sheet = spreadsheet.worksheet(project_name)
+        sheet_name = format_sheet_name(project_name, owner_name)
+        
+        try:
+            project_sheet = spreadsheet.worksheet(sheet_name)
+        except Exception as e:
+            st.error(f"Could not find sheet for {project_name}. Please make sure the project exists.")
+            return
+            
         data = project_sheet.get_all_records()
         
         if not data:
@@ -475,7 +498,9 @@ def display_bid_history(spreadsheet, project_name, project_owner):
         df = pd.DataFrame(data)
         
         # Add running total
-        df['Running Total'] = df['Total'].cumsum()
+        if 'Total' in df.columns:
+            df['Total'] = df['Total'].apply(lambda x: float(str(x).replace('$', '').replace(',', '')))
+            df['Running Total'] = df['Total'].cumsum()
         
         # Format currency columns
         currency_columns = ['Price', 'Total', 'Running Total']
@@ -486,76 +511,13 @@ def display_bid_history(spreadsheet, project_name, project_owner):
         # Display the main bid history table
         st.dataframe(df, use_container_width=True)
         
-        # Calculate contractor totals
-        contractor_totals = {}
-        for row in data:
-            contractor = row['Contractor']
-            total = float(str(row['Total']).replace('$', '').replace(',', ''))
-            contractor_totals[contractor] = contractor_totals.get(contractor, 0) + total
-        
-        # Display contractor totals
-        st.markdown("### Contractor Totals")
-        
-        # Create columns for contractor totals
-        cols = st.columns(min(3, len(contractor_totals)))
-        for idx, (contractor, total) in enumerate(sorted(contractor_totals.items())):
-            col_idx = idx % len(cols)
-            with cols[col_idx]:
-                st.metric(
-                    label=contractor,
-                    value=f"${total:,.2f}",
-                    help=f"Total bids for {contractor}"
-                )
-        
-        # Calculate and display project total
-        total_bids = len(data)
-        project_total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
-        
-        st.markdown("---")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Bids", total_bids)
-        with col2:
-            st.metric("Project Total", f"${project_total:,.2f}")
-        with col3:
-            if total_bids > 0:
-                avg_bid = project_total / total_bids
-                st.metric("Average Bid", f"${avg_bid:,.2f}")
-        
-        # Material breakdown
-        st.markdown("### Material Breakdown")
-        material_totals = {}
-        for row in data:
-            material = row['Material']
-            total = float(str(row['Total']).replace('$', '').replace(',', ''))
-            if material not in material_totals:
-                material_totals[material] = {
-                    'total': total,
-                    'count': 1,
-                    'avg': total
-                }
-            else:
-                material_totals[material]['total'] += total
-                material_totals[material]['count'] += 1
-                material_totals[material]['avg'] = material_totals[material]['total'] / material_totals[material]['count']
-        
-        # Display material breakdown
-        material_df = pd.DataFrame([
-            {
-                'Material': material,
-                'Total': f"${stats['total']:,.2f}",
-                'Count': stats['count'],
-                'Average': f"${stats['avg']:,.2f}"
-            }
-            for material, stats in material_totals.items()
-        ])
-        st.dataframe(material_df, use_container_width=True)
+        # Calculate and display totals
+        if data:
+            total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
+            st.markdown(f"### Total Bids: ${total:,.2f}")
             
     except Exception as e:
-        if "429" in str(e):
-            st.error("Rate limit reached. Please wait a moment and try again.")
-        else:
-            st.error(f"Error displaying bid history: {str(e)}")
+        st.error(f"Error displaying bid history: {str(e)}")
 
 def create_new_project(spreadsheet, project_name, owner_name):
     try:

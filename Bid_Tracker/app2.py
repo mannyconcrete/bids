@@ -903,11 +903,14 @@ def get_recent_bids(worksheet, project_name=None):
         # Save contractors and projects to session state
         st.session_state.saved_contractors.update(df['Contractor'].unique())
         for _, row in df.iterrows():
-            project_name = format_sheet_name(row['Project Name'])  # Format project name
+            project_name = format_sheet_name(str(row['Project Name']))  # Fixed: format project name
             if project_name not in st.session_state.saved_projects:
                 st.session_state.saved_projects[project_name] = {
                     'owner': row['Project Owner'],
-                    'location': row['Location']
+                    'location': row['Location'],
+                    'status': 'Not Started',
+                    'start_date': row['Date'],
+                    'last_updated': datetime.now().strftime('%Y-%m-%d')
                 }
         
         return df.to_dict('records')[-5:]

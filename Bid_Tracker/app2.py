@@ -115,26 +115,35 @@ def get_or_create_spreadsheet(sheets_client):
 
 def get_spreadsheet(sheets_client):
     try:
-        # Check if spreadsheet ID is in session state
-        if 'spreadsheet_id' not in st.session_state:
-            st.session_state.spreadsheet_id = None
-            
-        # Spreadsheet ID input
+        # Check if spreadsheet ID is in secrets
+        if 'spreadsheet_id' in st.secrets:
+            try:
+                spreadsheet = sheets_client.open_by_key(st.secrets['spreadsheet_id'])
+                return spreadsheet
+            except Exception as e:
+                st.error(f"Error opening saved spreadsheet: {str(e)}")
+        
+        # If no saved ID, show input
         col1, col2 = st.columns([3, 1])
         with col1:
             spreadsheet_id = st.text_input(
                 "Enter Google Spreadsheet ID",
-                value=st.session_state.spreadsheet_id if st.session_state.spreadsheet_id else "",
                 help="Enter the ID from your Google Spreadsheet URL"
             )
         with col2:
             if st.button("Connect"):
                 if spreadsheet_id:
                     try:
+                        # Test connection
                         spreadsheet = sheets_client.open_by_key(spreadsheet_id)
-                        st.session_state.spreadsheet_id = spreadsheet_id
+                        
+                        # Write to secrets.toml
+                        with open('.streamlit/secrets.toml', 'a') as f:
+                            f.write(f'\nspreadsheet_id = "{spreadsheet_id}"')
+                        
                         st.success("Successfully connected to spreadsheet!")
-                        return spreadsheet
+                        st.info("Please restart the app to complete setup")
+                        st.stop()
                     except Exception as e:
                         st.error(f"Error connecting to spreadsheet: {str(e)}")
                         return None
@@ -142,15 +151,6 @@ def get_spreadsheet(sheets_client):
                     st.error("Please enter a spreadsheet ID")
                     return None
                     
-        # If ID is in session state, try to open that spreadsheet
-        if st.session_state.spreadsheet_id:
-            try:
-                return sheets_client.open_by_key(st.session_state.spreadsheet_id)
-            except Exception as e:
-                st.error(f"Error opening spreadsheet: {str(e)}")
-                st.session_state.spreadsheet_id = None
-                return None
-                
         return None
         
     except Exception as e:
@@ -173,7 +173,7 @@ def get_google_services():
         drive_service = build('drive', 'v3', credentials=credentials)
         sheets_client = gspread.authorize(credentials)
         
-        # Get spreadsheet using input ID
+        # Get spreadsheet using saved ID
         spreadsheet = get_spreadsheet(sheets_client)
         
         return drive_service, sheets_client, spreadsheet
@@ -407,8 +407,8 @@ def main():
     
     # Don't proceed if no spreadsheet is connected
     if not spreadsheet:
-        st.warning("Please connect to a Google Spreadsheet to continue")
         st.info("To find your spreadsheet ID: Open your Google Sheet → Share → Copy link → ID is the long string in the URL")
+        st.info("Example: https://docs.google.com/spreadsheets/d/THIS-IS-YOUR-SPREADSHEET-ID/edit")
         return
     
     # Store spreadsheet ID in session state

@@ -755,45 +755,22 @@ def project_status_dashboard(spreadsheet):
         if project_key not in st.session_state.project_checklists:
             st.session_state.project_checklists[project_key] = {}
         
-        # Create columns for map and location management
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # Display map with all locations
-            if st.session_state.project_locations[project_key]:
-                map_data = pd.DataFrame(
-                    [{'lat': loc['coords'][0], 'lon': loc['coords'][1]} 
-                     for loc in st.session_state.project_locations[project_key]]
-                )
-                st.map(map_data)
-            else:
-                # Default map centered on New Jersey
-                st.map(pd.DataFrame({'lat': [40.0583], 'lon': [-74.4057]}, index=[0]))
-        
-        with col2:
-            # Add new location
-            st.markdown("### Add Location")
-            new_address = st.text_input("Location Name/Address")
-            col1, col2 = st.columns(2)
-            with col1:
-                lat = st.number_input("Latitude", value=40.0583, format="%.4f")
-            with col2:
-                lon = st.number_input("Longitude", value=-74.4057, format="%.4f")
-            
-            if st.button("Add Location"):
-                if new_address:
-                    st.session_state.project_locations[project_key].append({
-                        'address': new_address,
-                        'coords': [lat, lon],
-                        'status': 'Pending'
-                    })
-                    st.success(f"Added location: {new_address}")
-                    st.rerun()
-                else:
-                    st.error("Please enter a location name")
-        
         # Location list and checklists
         st.markdown("### Project Locations")
+        
+        # Add new location
+        st.markdown("#### Add New Location")
+        new_location = st.text_input("Location Name/Address")
+        if st.button("Add Location"):
+            if new_location:
+                st.session_state.project_locations[project_key].append({
+                    'address': new_location,
+                    'status': 'Pending'
+                })
+                st.success(f"Added location: {new_location}")
+                st.rerun()
+        
+        # Display existing locations
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
             with st.expander(f"📍 {location['address']}"):
                 # Status selection
@@ -875,7 +852,7 @@ def main():
         st.error("Could not connect to the bid tracking spreadsheet.")
         return
     
-    # Update navigation
+    # Add navigation
     page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":

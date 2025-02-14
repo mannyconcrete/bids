@@ -579,6 +579,14 @@ def project_status_dashboard(spreadsheet):
     else:
         st.info("No project status data available")
 
+def load_bid_history():
+    """Load bid history from the database"""
+    return db.get_bids() or []
+
+def save_bid(bid_data):
+    """Save bid to the database"""
+    db.add_bid(bid_data)
+
 def bid_entry_page(spreadsheet):
     st.header("Bid Entry")
     
@@ -587,58 +595,96 @@ def bid_entry_page(spreadsheet):
     materials_data = materials_sheet.get_all_records()
     materials_list = [item.get('Material', '') for item in materials_data if item.get('Material')]
     
-    worksheet = spreadsheet.worksheet("Master Sheet")
+    # Load bid history
+    bid_history = load_bid_history()
     
-    # Create the form
-    with st.form("bid_entry_form"):
-        date = st.date_input("Date", datetime.today())
-        contractor = st.text_input("Contractor", value="Manny's Concrete NJ")
-        project_name = st.text_input("Project Name")
-        project_owner = st.text_input("Project Owner")
-        location = st.text_input("Location")
-        unit_number = st.text_input("Unit Number")
+    # Create columns for form and history
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        worksheet = spreadsheet.worksheet("Master Sheet")
         
-        # Use dropdown for materials
-        material = st.selectbox("Material", options=materials_list)
-        
-        # Get default unit based on selected material
-        default_unit = next((item.get('Unit', '') for item in materials_data if item.get('Material') == material), '')
-        unit = st.text_input("Unit", value=default_unit)
-        
-        quantity = st.number_input("Quantity", min_value=0.0, format="%f")
-        price = st.number_input("Price per Unit", min_value=0.0, format="%f")
-        
-        # Calculate total
-        total = quantity * price
-        st.write(f"Total: ${total:,.2f}")
-        
-        submitted = st.form_submit_button("Submit Bid")
-        
-        if submitted:
-            # Prepare the row data
-            row_data = [
-                date.strftime("%Y-%m-%d"),
-                contractor,
-                project_name,
-                project_owner,
-                location,
-                unit_number,
-                material,
-                unit,
-                quantity,
-                price,
-                total,
-                ""  # Empty column at the end
-            ]
+        # Create the form
+        with st.form("bid_entry_form"):
+            date = st.date_input("Date", datetime.today())
+            contractor = st.text_input("Contractor", value="Manny's Concrete NJ")
+            project_name = st.text_input("Project Name")
+            project_owner = st.text_input("Project Owner")
+            location = st.text_input("Location")
+            unit_number = st.text_input("Unit Number")
             
-            try:
-                worksheet.append_row(row_data)
-                st.success("Bid successfully added!")
+            # Use dropdown for materials
+            material = st.selectbox("Material", options=materials_list)
+            
+            # Get default unit based on selected material
+            default_unit = next((item.get('Unit', '') for item in materials_data if item.get('Material') == material), '')
+            unit = st.text_input("Unit", value=default_unit)
+            
+            quantity = st.number_input("Quantity", min_value=0.0, format="%f")
+            price = st.number_input("Price per Unit", min_value=0.0, format="%f")
+            
+            # Calculate total
+            total = quantity * price
+            st.write(f"Total: ${total:,.2f}")
+            
+            submitted = st.form_submit_button("Submit Bid")
+            
+            if submitted:
+                # Prepare the bid data
+                bid_data = {
+                    "date": date.strftime("%Y-%m-%d"),
+                    "contractor": contractor,
+                    "project_name": project_name,
+                    "project_owner": project_owner,
+                    "location": location,
+                    "unit_number": unit_number,
+                    "material": material,
+                    "unit": unit,
+                    "quantity": quantity,
+                    "price": price,
+                    "total": total
+                }
                 
-                # Clear the form (by rerunning the app)
-                st.experimental_rerun()
-            except Exception as e:
-                st.error(f"Error adding bid: {str(e)}")
+                # Save to database
+                save_bid(bid_data)
+                
+                # Save to Google Sheet
+                row_data = [
+                    date.strftime("%Y-%m-%d"),
+                    contractor,
+                    project_name,
+                    project_owner,
+                    location,
+                    unit_number,
+                    material,
+                    unit,
+                    quantity,
+                    price,
+                    total,
+                    ""  # Empty column at the end
+                ]
+                
+                try:
+                    worksheet.append_row(row_data)
+                    st.success("Bid successfully added!")
+                    time.sleep(0.5)  # Brief pause for the success message
+                    st.experimental_rerun()  # Refresh to show updated history
+                except Exception as e:
+                    st.error(f"Error adding bid: {str(e)}")
+    
+    with col2:
+        st.subheader("Recent Bids")
+        if bid_history:
+            for bid in reversed(bid_history[-5:]):  # Show last 5 bids
+                with st.expander(f"{bid['project_name']} - {bid['date']}"):
+                    st.write(f"Project Owner: {bid['project_owner']}")
+                    st.write(f"Location: {bid['location']}")
+                    st.write(f"Material: {bid['material']}")
+                    st.write(f"Quantity: {bid['quantity']} {bid['unit']}")
+                    st.write(f"Price: ${bid['price']:.2f}")
+                    st.write(f"Total: ${bid['total']:.2f}")
+        else:
+            st.info("No bid history available")
 
 def main():
     st.title("📊 Bid Tracker")

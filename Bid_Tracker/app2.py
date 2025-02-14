@@ -16,10 +16,6 @@ if 'project_locations' not in st.session_state:
 if 'project_checklists' not in st.session_state:
     st.session_state.project_checklists = {}
 
-# Initialize Google Maps client
-GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
-gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
-
 # Initialize session state
 if 'materials' not in st.session_state:
     st.session_state.materials = set()

@@ -181,7 +181,9 @@ def get_google_services():
         client = gspread.authorize(credentials)
         spreadsheet = client.open_by_key(st.secrets["spreadsheet_id"])
         
-        # Return None for drive_service since we're not using it
+        # Debug information
+        st.write("Available sheets:", [sheet.title for sheet in spreadsheet.worksheets()])
+        
         return None, client, spreadsheet
     except Exception as e:
         st.error(f"Error connecting to Google services: {str(e)}")
@@ -817,55 +819,14 @@ def main():
     page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":
-        st.markdown("### New Bid")
+        try:
+            worksheet = spreadsheet.worksheet("Bids")  # or your sheet name
+            data = worksheet.get_all_records()
+            st.write(f"Found {len(data)} records in the sheet")
+        except Exception as e:
+            st.error(f"Error accessing worksheet: {str(e)}")
+        # ... rest of bid entry code ...
         
-        # Get materials list and stats
-        materials_data = get_materials_from_sheet(spreadsheet)
-        material_list = [m['Material'] for m in materials_data if m['Material'].strip()]
-        material_stats = get_material_stats(spreadsheet)
-        
-        # Add "New Project" option to project selection
-        projects = db.get_projects()
-        project_names = [p[0] for p in projects]
-        project_choice = st.selectbox(
-            "Select Project",
-            options=["Create New Project"] + project_names
-        )
-        
-        if project_choice == "Create New Project":
-            st.markdown("### Create New Project")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                new_project_name = st.text_input("Project Name")
-            with col2:
-                new_project_owner = st.text_input("Project Owner")
-                
-            if st.button("Create Project"):
-                if new_project_name and new_project_owner:
-                    if create_new_project(spreadsheet, new_project_name, new_project_owner):
-                        st.rerun()
-                else:
-                    st.error("Please enter both project name and owner")
-            
-            st.markdown("---")
-        
-        selected_project = project_choice if project_choice != "Create New Project" else None
-        
-        if selected_project:
-            # Get project owner
-            project_owner = db.get_project_owner(selected_project)
-            st.info(f"Project Owner: {project_owner}")
-            
-            # Display bid history for the selected project
-            try:
-                display_bid_history(spreadsheet, selected_project)
-            except Exception as e:
-                st.error(f"Error displaying bid history: {str(e)}")
-            
-            # Rest of bid entry form...
-            # ... (keep existing code) ...
-    
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
     elif page == "Project Status":

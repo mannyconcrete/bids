@@ -1,15 +1,20 @@
 import streamlit as st
-from database import Database
 import pandas as pd
 from datetime import datetime, timedelta
 import os
 import time
 import json
+from database import Database
 import requests
-import googlemaps
 
 # Initialize database
 db = Database()
+
+# Add to session state initialization at the top
+if 'project_locations' not in st.session_state:
+    st.session_state.project_locations = {}
+if 'project_checklists' not in st.session_state:
+    st.session_state.project_checklists = {}
 
 # Initialize Google Maps client
 GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
@@ -34,12 +39,6 @@ if 'cache' not in st.session_state:
         'materials': None,
         'materials_last_refresh': None
     }
-
-# Add to session state initialization at the top
-if 'project_locations' not in st.session_state:
-    st.session_state.project_locations = {}
-if 'project_checklists' not in st.session_state:
-    st.session_state.project_checklists = {}
 
 # Set page config for mobile
 st.set_page_config(

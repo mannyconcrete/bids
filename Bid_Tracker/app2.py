@@ -729,17 +729,6 @@ def project_tracking_dashboard(spreadsheet):
                 ])
                 st.dataframe(contractor_df, use_container_width=True)
 
-def geocode_address(address):
-    try:
-        geolocator = Nominatim(user_agent="bid_tracker")
-        location = geolocator.geocode(address)
-        if location:
-            return [location.latitude, location.longitude]
-        return None
-    except Exception as e:
-        st.error(f"Error geocoding address: {str(e)}")
-        return None
-
 def project_status_dashboard(spreadsheet):
     st.markdown("## 📍 Project Status & Location Tracking")
     
@@ -784,20 +773,24 @@ def project_status_dashboard(spreadsheet):
         with col2:
             # Add new location
             st.markdown("### Add Location")
-            new_address = st.text_input("Enter Address")
+            new_address = st.text_input("Location Name/Address")
+            col1, col2 = st.columns(2)
+            with col1:
+                lat = st.number_input("Latitude", value=40.0583, format="%.4f")
+            with col2:
+                lon = st.number_input("Longitude", value=-74.4057, format="%.4f")
+            
             if st.button("Add Location"):
                 if new_address:
-                    coords = geocode_address(new_address)
-                    if coords:
-                        st.session_state.project_locations[project_key].append({
-                            'address': new_address,
-                            'coords': coords,
-                            'status': 'Pending'
-                        })
-                        st.success(f"Added location: {new_address}")
-                        st.rerun()
-                    else:
-                        st.error("Could not find coordinates for this address")
+                    st.session_state.project_locations[project_key].append({
+                        'address': new_address,
+                        'coords': [lat, lon],
+                        'status': 'Pending'
+                    })
+                    st.success(f"Added location: {new_address}")
+                    st.rerun()
+                else:
+                    st.error("Please enter a location name")
         
         # Location list and checklists
         st.markdown("### Project Locations")

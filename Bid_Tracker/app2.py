@@ -6,6 +6,8 @@ import time
 import json
 from database import Database
 import requests
+import gspread
+from google.oauth2 import service_account
 
 # Initialize database
 db = Database()
@@ -51,9 +53,6 @@ st.set_page_config(
 )
 
 try:
-    import gspread
-    from google.oauth2.service_account import Credentials
-    from google.oauth2 import service_account
     from googleapiclient.discovery import build
 except ImportError:
     st.error("""
@@ -169,15 +168,32 @@ def get_spreadsheet(sheets_client):
         return None
 
 def get_google_services():
-    """Initialize Google services using existing database connection"""
+    """Initialize Google services"""
     try:
-        # Get the existing spreadsheet connection from the database
-        spreadsheet = db.get_spreadsheet()
-        if spreadsheet:
-            return None, None, spreadsheet
-        else:
-            st.error("Could not connect to spreadsheet")
-            return None, None, None
+        # Get credentials from environment or config
+        credentials = {
+            "type": "service_account",
+            "project_id": os.getenv("GOOGLE_PROJECT_ID"),
+            "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
+            "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
+            "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
+            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL")
+        }
+        
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive.file'
+        ]
+        
+        creds = service_account.Credentials.from_service_account_info(credentials, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(os.getenv("GOOGLE_SPREADSHEET_ID"))
+        
+        return None, client, spreadsheet
     except Exception as e:
         st.error(f"Error connecting to Google services: {str(e)}")
         return None, None, None

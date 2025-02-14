@@ -474,26 +474,70 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
         st.error(f"Error adding material: {str(e)}")
         return False
 
-def display_bid_history(spreadsheet, project_name):
-    """Display bid history for a project"""
+def get_recent_bids(worksheet, project_name=None):
+    """Get recent bids from Google Sheet with totals"""
     try:
-        sheet_name = format_sheet_name(project_name)
-        worksheet = spreadsheet.worksheet("Master Sheet")
-        recent_bids = get_recent_bids(worksheet, project_name)
+        data = worksheet.get_all_records()
+        if not data:
+            return [], 0
         
-        if recent_bids:
-            st.subheader("Recent Bids")
-            for bid in reversed(recent_bids):
-                with st.expander(f"{bid['Date']} - {bid['Material']}"):
-                    st.write(f"Contractor: {bid['Contractor']}")
-                    st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
-                    st.write(f"Price: ${bid['Price']:.2f}")
-                    st.write(f"Total: ${bid['Total']:.2f}")
-        else:
-            st.info("No bid history available")
-            
+        df = pd.DataFrame(data)
+        if project_name:
+            df = df[df['Project Name'] == project_name]
+        
+        # Calculate total value of all bids
+        total_value = df['Total'].sum()
+        
+        # Save contractors and projects to session state
+        st.session_state.saved_contractors.update(df['Contractor'].unique())
+        for _, row in df.iterrows():
+            project_name = format_sheet_name(str(row['Project Name']))
+            if project_name not in st.session_state.saved_projects:
+                st.session_state.saved_projects[project_name] = {
+                    'owner': row['Project Owner'],
+                    'location': row['Location'],
+                    'status': 'Not Started',
+                    'start_date': row['Date'],
+                    'last_updated': datetime.now().strftime('%Y-%m-%d')
+                }
+        
+        return df.to_dict('records')[-10:], total_value  # Return last 10 bids and total
     except Exception as e:
-        st.error(f"Error displaying bid history: {str(e)}")
+        st.error(f"Error loading bid history: {str(e)}")
+        return [], 0
+
+def display_bid_history(worksheet):
+    """Display enhanced bid history with totals"""
+    recent_bids, total_value = get_recent_bids(worksheet)
+    
+    if recent_bids:
+        # Display total value
+        st.metric("Total Bid Value", f"${total_value:,.2f}")
+        
+        # Group bids by project
+        bids_by_project = {}
+        for bid in recent_bids:
+            project = bid['Project Name']
+            if project not in bids_by_project:
+                bids_by_project[project] = []
+            bids_by_project[project].append(bid)
+        
+        # Display bids grouped by project
+        for project, bids in bids_by_project.items():
+            project_total = sum(bid['Total'] for bid in bids)
+            with st.expander(f"📋 {project} - Total: ${project_total:,.2f}"):
+                for bid in reversed(bids):
+                    st.markdown(f"""
+                    **Date:** {bid['Date']}  
+                    **Contractor:** {bid['Contractor']}  
+                    **Material:** {bid['Material']}  
+                    **Quantity:** {bid['Quantity']} {bid['Unit']}  
+                    **Price:** ${bid['Price']:.2f}/unit  
+                    **Total:** ${bid['Total']:,.2f}
+                    ---
+                    """)
+    else:
+        st.info("No bid history available")
 
 def create_new_project(spreadsheet, project_name, owner_name):
     try:
@@ -820,35 +864,6 @@ def format_sheet_name(name):
     # Truncate to 31 characters (Google Sheets limit)
     return name[:31]
 
-def get_recent_bids(worksheet, project_name=None):
-    """Get recent bids from Google Sheet"""
-    try:
-        data = worksheet.get_all_records()
-        if not data:
-            return []
-        
-        df = pd.DataFrame(data)
-        if project_name:
-            df = df[df['Project Name'] == project_name]
-        
-        # Save contractors and projects to session state
-        st.session_state.saved_contractors.update(df['Contractor'].unique())
-        for _, row in df.iterrows():
-            project_name = format_sheet_name(str(row['Project Name']))
-            if project_name not in st.session_state.saved_projects:
-                st.session_state.saved_projects[project_name] = {
-                    'owner': row['Project Owner'],
-                    'location': row['Location'],
-                    'status': 'Not Started',
-                    'start_date': row['Date'],
-                    'last_updated': datetime.now().strftime('%Y-%m-%d')
-                }
-        
-        return df.to_dict('records')[-5:]
-    except Exception as e:
-        st.error(f"Error loading bid history: {str(e)}")
-        return []
-
 def bid_entry_page(spreadsheet):
     st.header("Bid Entry")
     
@@ -950,18 +965,7 @@ def bid_entry_page(spreadsheet):
     
     with col2:
         st.subheader("Recent Bids")
-        recent_bids = get_recent_bids(worksheet)
-        
-        if recent_bids:
-            for bid in reversed(recent_bids):
-                with st.expander(f"{bid['Project Name']} - {bid['Date']}"):
-                    st.write(f"Contractor: {bid['Contractor']}")
-                    st.write(f"Material: {bid['Material']}")
-                    st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
-                    st.write(f"Price: ${bid['Price']:.2f}")
-                    st.write(f"Total: ${bid['Total']:.2f}")
-        else:
-            st.info("No bid history available")
+        display_bid_history(worksheet)
 
 def main():
     st.title("📊 Bid Tracker")

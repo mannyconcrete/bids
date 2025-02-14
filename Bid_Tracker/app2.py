@@ -5,14 +5,9 @@ from datetime import datetime, timedelta
 import os
 import time
 import json
-import googlemaps
 
 # Initialize database
 db = Database()
-
-# Initialize Google Maps client
-GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
-gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
 
 # Initialize session state
 if 'materials' not in st.session_state:
@@ -733,17 +728,16 @@ def project_tracking_dashboard(spreadsheet):
                 ])
                 st.dataframe(contractor_df, use_container_width=True)
 
-def get_coordinates(address):
+def geocode_address(address):
     try:
-        # Geocode the address
-        result = gmaps.geocode(address)
-        if result:
-            location = result[0]['geometry']['location']
-            return location['lat'], location['lng']
-        return None, None
+        geolocator = Nominatim(user_agent="bid_tracker")
+        location = geolocator.geocode(address)
+        if location:
+            return [location.latitude, location.longitude]
+        return None
     except Exception as e:
         st.error(f"Error geocoding address: {str(e)}")
-        return None, None
+        return None
 
 def project_status_dashboard(spreadsheet):
     st.markdown("## 📍 Project Status & Location Tracking")
@@ -796,24 +790,23 @@ def project_status_dashboard(spreadsheet):
         with col2:
             # Add new location
             st.markdown("### Add Location")
-            new_location = st.text_input("Enter Address")
+            new_location = st.text_input("Location Name/Address")
+            col1, col2 = st.columns(2)
+            with col1:
+                latitude = st.number_input("Latitude", value=40.0583, format="%.4f")
+            with col2:
+                longitude = st.number_input("Longitude", value=-74.4057, format="%.4f")
             
             if st.button("Add Location"):
                 if new_location:
-                    # Get coordinates from Google Maps
-                    latitude, longitude = get_coordinates(new_location)
-                    
-                    if latitude and longitude:
-                        st.session_state.project_locations[project_key].append({
-                            'address': new_location,
-                            'latitude': latitude,
-                            'longitude': longitude,
-                            'status': 'Pending'
-                        })
-                        st.success(f"Added location: {new_location}")
-                        st.rerun()
-                    else:
-                        st.error("Could not find coordinates for this address")
+                    st.session_state.project_locations[project_key].append({
+                        'address': new_location,
+                        'latitude': latitude,
+                        'longitude': longitude,
+                        'status': 'Pending'
+                    })
+                    st.success(f"Added location: {new_location}")
+                    st.rerun()
         
         # Location list and checklists
         st.markdown("### Project Locations")

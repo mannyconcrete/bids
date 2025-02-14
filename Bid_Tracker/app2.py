@@ -4,6 +4,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import time
+import folium
+from streamlit_folium import folium_static
+import json
+from geopy.geocoder import Nominatim
 
 # Initialize database
 db = Database()
@@ -27,6 +31,12 @@ if 'cache' not in st.session_state:
         'materials': None,
         'materials_last_refresh': None
     }
+
+# Add to session state initialization at the top
+if 'project_locations' not in st.session_state:
+    st.session_state.project_locations = {}
+if 'project_checklists' not in st.session_state:
+    st.session_state.project_checklists = {}
 
 # Set page config for mobile
 st.set_page_config(
@@ -243,21 +253,6 @@ def delete_row(spreadsheet, sheet_name, row_index):
         st.error(f"Error deleting row: {str(e)}")
         return False
 
-def format_sheet_name(project_name, owner_name):
-    """Format sheet name to be valid for Google Sheets"""
-    try:
-        # Replace invalid characters and limit length
-        sheet_name = f"{project_name} - {owner_name}"
-        # Remove or replace invalid characters
-        invalid_chars = '[]:*?/\\'
-        for char in invalid_chars:
-            sheet_name = sheet_name.replace(char, '')
-        # Limit to 100 characters (Google Sheets limit)
-        return sheet_name[:100].strip()
-    except Exception as e:
-        st.error(f"Error formatting sheet name: {str(e)}")
-        return f"{project_name} - {owner_name}"  # Return basic format as fallback
-
 def save_to_sheets(spreadsheet, data, project_name):
     try:
         time.sleep(1)  # Add delay before saving
@@ -307,9 +302,8 @@ def save_to_sheets(spreadsheet, data, project_name):
         project_sheet.append_row(project_data)
         
         # Clear cache to force refresh
-        if 'cache' in st.session_state:
-            st.session_state.cache['spreadsheet'] = None
-            st.session_state.cache['materials'] = None
+        st.session_state.cache['spreadsheet'] = None
+        st.session_state.cache['materials'] = None
         
         st.success("Bid saved successfully!")
         
@@ -475,17 +469,10 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
         st.error(f"Error adding material: {str(e)}")
         return False
 
-def display_bid_history(spreadsheet, project_name, owner_name):
+def display_bid_history(spreadsheet, project_name, project_owner):
     try:
         time.sleep(1)  # Add delay to prevent quota issues
-        sheet_name = format_sheet_name(project_name, owner_name)
-        
-        try:
-            project_sheet = spreadsheet.worksheet(sheet_name)
-        except Exception as e:
-            st.error(f"Could not find sheet for {project_name}. Please make sure the project exists.")
-            return
-            
+        project_sheet = spreadsheet.worksheet(project_name)
         data = project_sheet.get_all_records()
         
         if not data:
@@ -498,9 +485,7 @@ def display_bid_history(spreadsheet, project_name, owner_name):
         df = pd.DataFrame(data)
         
         # Add running total
-        if 'Total' in df.columns:
-            df['Total'] = df['Total'].apply(lambda x: float(str(x).replace('$', '').replace(',', '')))
-            df['Running Total'] = df['Total'].cumsum()
+        df['Running Total'] = df['Total'].cumsum()
         
         # Format currency columns
         currency_columns = ['Price', 'Total', 'Running Total']
@@ -511,13 +496,76 @@ def display_bid_history(spreadsheet, project_name, owner_name):
         # Display the main bid history table
         st.dataframe(df, use_container_width=True)
         
-        # Calculate and display totals
-        if data:
-            total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
-            st.markdown(f"### Total Bids: ${total:,.2f}")
+        # Calculate contractor totals
+        contractor_totals = {}
+        for row in data:
+            contractor = row['Contractor']
+            total = float(str(row['Total']).replace('$', '').replace(',', ''))
+            contractor_totals[contractor] = contractor_totals.get(contractor, 0) + total
+        
+        # Display contractor totals
+        st.markdown("### Contractor Totals")
+        
+        # Create columns for contractor totals
+        cols = st.columns(min(3, len(contractor_totals)))
+        for idx, (contractor, total) in enumerate(sorted(contractor_totals.items())):
+            col_idx = idx % len(cols)
+            with cols[col_idx]:
+                st.metric(
+                    label=contractor,
+                    value=f"${total:,.2f}",
+                    help=f"Total bids for {contractor}"
+                )
+        
+        # Calculate and display project total
+        total_bids = len(data)
+        project_total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
+        
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Bids", total_bids)
+        with col2:
+            st.metric("Project Total", f"${project_total:,.2f}")
+        with col3:
+            if total_bids > 0:
+                avg_bid = project_total / total_bids
+                st.metric("Average Bid", f"${avg_bid:,.2f}")
+        
+        # Material breakdown
+        st.markdown("### Material Breakdown")
+        material_totals = {}
+        for row in data:
+            material = row['Material']
+            total = float(str(row['Total']).replace('$', '').replace(',', ''))
+            if material not in material_totals:
+                material_totals[material] = {
+                    'total': total,
+                    'count': 1,
+                    'avg': total
+                }
+            else:
+                material_totals[material]['total'] += total
+                material_totals[material]['count'] += 1
+                material_totals[material]['avg'] = material_totals[material]['total'] / material_totals[material]['count']
+        
+        # Display material breakdown
+        material_df = pd.DataFrame([
+            {
+                'Material': material,
+                'Total': f"${stats['total']:,.2f}",
+                'Count': stats['count'],
+                'Average': f"${stats['avg']:,.2f}"
+            }
+            for material, stats in material_totals.items()
+        ])
+        st.dataframe(material_df, use_container_width=True)
             
     except Exception as e:
-        st.error(f"Error displaying bid history: {str(e)}")
+        if "429" in str(e):
+            st.error("Rate limit reached. Please wait a moment and try again.")
+        else:
+            st.error(f"Error displaying bid history: {str(e)}")
 
 def create_new_project(spreadsheet, project_name, owner_name):
     try:
@@ -683,6 +731,148 @@ def project_tracking_dashboard(spreadsheet):
                 ])
                 st.dataframe(contractor_df, use_container_width=True)
 
+def geocode_address(address):
+    try:
+        geolocator = Nominatim(user_agent="bid_tracker")
+        location = geolocator.geocode(address)
+        if location:
+            return [location.latitude, location.longitude]
+        return None
+    except Exception as e:
+        st.error(f"Error geocoding address: {str(e)}")
+        return None
+
+def project_status_dashboard(spreadsheet):
+    st.markdown("## 📍 Project Status & Location Tracking")
+    
+    # Get all projects
+    projects = db.get_projects()
+    if not projects:
+        st.info("No projects found")
+        return
+    
+    # Project selection
+    selected_project = st.selectbox(
+        "Select Project",
+        [p[0] for p in projects]
+    )
+    
+    if selected_project:
+        project_owner = db.get_project_owner(selected_project)
+        st.info(f"Project Owner: {project_owner}")
+        
+        # Initialize project data in session state if not exists
+        project_key = f"{selected_project} - {project_owner}"
+        if project_key not in st.session_state.project_locations:
+            st.session_state.project_locations[project_key] = []
+        if project_key not in st.session_state.project_checklists:
+            st.session_state.project_checklists[project_key] = {}
+        
+        # Create columns for map and location management
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Initialize map centered on New Jersey
+            m = folium.Map(location=[40.0583, -74.4057], zoom_start=8)
+            
+            # Add existing markers
+            for idx, loc in enumerate(st.session_state.project_locations[project_key]):
+                folium.Marker(
+                    loc['coords'],
+                    popup=loc['address'],
+                    tooltip=f"Location {idx + 1}"
+                ).add_to(m)
+            
+            # Display map
+            folium_static(m)
+        
+        with col2:
+            # Add new location
+            st.markdown("### Add Location")
+            new_address = st.text_input("Enter Address")
+            if st.button("Add Location"):
+                if new_address:
+                    coords = geocode_address(new_address)
+                    if coords:
+                        st.session_state.project_locations[project_key].append({
+                            'address': new_address,
+                            'coords': coords,
+                            'status': 'Pending'
+                        })
+                        st.success(f"Added location: {new_address}")
+                        st.rerun()
+                    else:
+                        st.error("Could not find coordinates for this address")
+        
+        # Location list and checklists
+        st.markdown("### Project Locations")
+        for idx, location in enumerate(st.session_state.project_locations[project_key]):
+            with st.expander(f"📍 {location['address']}"):
+                # Status selection
+                status = st.selectbox(
+                    "Status",
+                    ["Pending", "In Progress", "Completed"],
+                    key=f"status_{idx}",
+                    index=["Pending", "In Progress", "Completed"].index(location.get('status', 'Pending'))
+                )
+                location['status'] = status
+                
+                # Checklist
+                st.markdown("#### Checklist")
+                if location['address'] not in st.session_state.project_checklists[project_key]:
+                    st.session_state.project_checklists[project_key][location['address']] = {
+                        'Site Preparation': False,
+                        'Materials Delivered': False,
+                        'Work Started': False,
+                        'Work Completed': False,
+                        'Final Inspection': False,
+                        'Client Approval': False
+                    }
+                
+                checklist = st.session_state.project_checklists[project_key][location['address']]
+                for item in checklist:
+                    checklist[item] = st.checkbox(
+                        item,
+                        value=checklist[item],
+                        key=f"check_{idx}_{item}"
+                    )
+                
+                # Notes section
+                if 'notes' not in location:
+                    location['notes'] = ""
+                location['notes'] = st.text_area(
+                    "Notes",
+                    value=location['notes'],
+                    key=f"notes_{idx}"
+                )
+                
+                # Delete location button
+                if st.button("Delete Location", key=f"delete_{idx}"):
+                    st.session_state.project_locations[project_key].pop(idx)
+                    st.rerun()
+        
+        # Project progress
+        st.markdown("### Project Progress")
+        if st.session_state.project_locations[project_key]:
+            total_locations = len(st.session_state.project_locations[project_key])
+            completed = sum(1 for loc in st.session_state.project_locations[project_key] 
+                          if loc['status'] == 'Completed')
+            in_progress = sum(1 for loc in st.session_state.project_locations[project_key] 
+                            if loc['status'] == 'In Progress')
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Locations", total_locations)
+            with col2:
+                st.metric("In Progress", in_progress)
+            with col3:
+                st.metric("Completed", completed)
+            
+            # Progress bar
+            progress = completed / total_locations
+            st.progress(progress)
+            st.markdown(f"**Overall Progress:** {progress * 100:.1f}%")
+
 def main():
     st.title("📊 Bid Tracker")
     
@@ -697,8 +887,8 @@ def main():
         st.error("Could not connect to the bid tracking spreadsheet.")
         return
     
-    # Add navigation
-    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking"])
+    # Update navigation
+    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
     
     if page == "Bid Entry":
         st.markdown("### New Bid")
@@ -838,6 +1028,8 @@ def main():
     
     elif page == "Project Tracking":
         project_tracking_dashboard(spreadsheet)
+    elif page == "Project Status":
+        project_status_dashboard(spreadsheet)
 
 if __name__ == "__main__":
     main()

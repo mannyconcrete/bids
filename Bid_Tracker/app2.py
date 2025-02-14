@@ -351,7 +351,7 @@ def main():
                 # Bid details
                 col1, col2 = st.columns(2)
                 with col1:
-                    unit_number = st.text_input("Unit Number")
+                    # Material selection first
                     material = st.selectbox(
                         "Material",
                         options=list(material_stats.keys()) + ["Add New Material"]
@@ -361,6 +361,9 @@ def main():
                         if new_material:
                             material = new_material
                             db.add_material(new_material)
+                    
+                    # Unit number second
+                    unit_number = st.text_input("Unit Number")
                 
                 with col2:
                     # Auto-suggest unit based on material
@@ -368,7 +371,6 @@ def main():
                     suggested_unit = material_stats.get(material, {}).get('most_common_unit', 'SF')
                     default_index = 0  # Default to first option
                     
-                    # Try to find the suggested unit in our options
                     try:
                         default_index = unit_options.index(suggested_unit)
                     except ValueError:
@@ -411,10 +413,17 @@ def main():
                 if st.button("Submit Bid"):
                     date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     data = [
-                        date, selected_contractor,
-                        selected_project, db.get_project_owner(selected_project),
-                        location, unit_number,
-                        material, unit, quantity, price, total
+                        date,                   # Date
+                        selected_contractor,    # Contractor
+                        selected_project,       # Project Name
+                        db.get_project_owner(selected_project),  # Project Owner
+                        location,              # Location
+                        unit_number,           # Unit Number
+                        material,              # Material
+                        unit,                  # Unit
+                        quantity,              # Quantity
+                        price,                 # Price
+                        total                  # Total
                     ]
                     save_to_sheets(spreadsheet, data, selected_project)
     

@@ -103,41 +103,64 @@ def get_google_services():
 
 def create_and_share_spreadsheet(drive_service, sheets_client):
     try:
-        sheet_name = "Bid Results Tracker"
+        SPREADSHEET_NAME = "Bid Results Tracker"
+        
+        # Try to find existing spreadsheet first
         try:
-            # Try to open existing spreadsheet
-            spreadsheet = sheets_client.open(sheet_name)
-            st.success(f"Found existing spreadsheet: {sheet_name}")
-        except:
-            # Create new spreadsheet
-            spreadsheet = sheets_client.create(sheet_name)
-            worksheet = spreadsheet.sheet1
-            worksheet.update_title("Master Sheet")
-            
-            # Set up headers
-            headers = ["Date", "Contractor", "Project Name", "Project Owner", 
-                      "Location", "Unit Number", "Material", "Unit", 
-                      "Quantity", "Price", "Total"]
-            worksheet.append_row(headers)
-            
-            # Share with your email
-            spreadsheet.share(
-                'mannysconcretenj@gmail.com',  # Replace with your email
-                perm_type='user',
-                role='writer'
-            )
-            
-            st.success(f"Created new spreadsheet: {sheet_name}")
-            
+            spreadsheet_list = sheets_client.list_spreadsheet_files()
+            for spreadsheet in spreadsheet_list:
+                if spreadsheet['name'] == SPREADSHEET_NAME:
+                    return sheets_client.open_by_key(spreadsheet['id'])
+        except Exception as e:
+            st.warning(f"Searching for existing spreadsheet: {str(e)}")
+        
+        # If not found, create new spreadsheet
+        spreadsheet = sheets_client.create(SPREADSHEET_NAME)
+        worksheet = spreadsheet.sheet1
+        worksheet.update_title("Master Sheet")
+        
+        # Set up headers for master sheet
+        headers = ["Date", "Contractor", "Project Name", "Project Owner", 
+                  "Location", "Unit Number", "Material", "Unit", 
+                  "Quantity", "Price", "Total"]
+        worksheet.append_row(headers)
+        
+        # Share with your email
+        spreadsheet.share(
+            'mannysconcretenj@gmail.com',
+            perm_type='user',
+            role='writer'
+        )
+        
+        st.success(f"Created new master spreadsheet: {SPREADSHEET_NAME}")
         return spreadsheet
+        
     except Exception as e:
-        st.error(f"Error creating spreadsheet: {str(e)}")
+        st.error(f"Error with spreadsheet: {str(e)}")
         return None
 
 def delete_row(spreadsheet, sheet_name, row_index):
     try:
-        sheet = spreadsheet.worksheet(sheet_name)
-        sheet.delete_rows(row_index + 2)  # +2 for header and 1-based index
+        # Delete from project sheet
+        project_sheet = spreadsheet.worksheet(sheet_name)
+        project_sheet.delete_rows(row_index + 2)  # +2 for header and 1-based index
+        
+        # Find and delete corresponding row in master sheet
+        master_sheet = spreadsheet.worksheet("Master Sheet")
+        master_data = master_sheet.get_all_records()
+        
+        # Get the data from the deleted project row
+        project_data = project_sheet.get_all_records()
+        deleted_row = project_data[row_index - 1]  # -1 because row_index is 1-based
+        
+        # Find matching row in master sheet
+        for i, row in enumerate(master_data):
+            if (row['Date'] == deleted_row['Date'] and 
+                row['Contractor'] == deleted_row['Contractor'] and
+                row['Total'] == deleted_row['Total']):
+                master_sheet.delete_rows(i + 2)  # +2 for header and 1-based index
+                break
+        
         return True
     except Exception as e:
         st.error(f"Error deleting row: {str(e)}")
@@ -145,11 +168,11 @@ def delete_row(spreadsheet, sheet_name, row_index):
 
 def save_to_sheets(spreadsheet, data, project_name):
     try:
-        # Save to Master Sheet
-        master_sheet = spreadsheet.sheet1
+        # Always save to Master Sheet
+        master_sheet = spreadsheet.worksheet("Master Sheet")
         master_sheet.append_row(data)
         
-        # Create or update project sheet
+        # Get or create project-specific sheet
         try:
             project_sheet = spreadsheet.worksheet(project_name)
         except:
@@ -171,7 +194,8 @@ def save_to_sheets(spreadsheet, data, project_name):
             data[11]  # Total
         ]
         project_sheet.append_row(project_data)
-        st.success("Bid saved successfully!")
+        st.success("Bid saved successfully to both Master Sheet and Project Sheet!")
+        
     except Exception as e:
         st.error(f"Error saving bid: {str(e)}")
 

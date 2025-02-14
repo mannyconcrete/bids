@@ -172,12 +172,7 @@ def get_google_services():
     """Initialize Google services using existing database connection"""
     try:
         # Get the existing spreadsheet connection from the database
-        spreadsheet = db.spreadsheet
-        if spreadsheet:
-            return None, None, spreadsheet
-        else:
-            st.error("Could not connect to spreadsheet")
-            return None, None, None
+        return db.get_drive_service(), db.get_sheets_client(), db.get_spreadsheet()
     except Exception as e:
         st.error(f"Error connecting to Google services: {str(e)}")
         return None, None, None

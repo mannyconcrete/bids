@@ -115,57 +115,16 @@ def get_or_create_spreadsheet(sheets_client):
 
 def get_spreadsheet(sheets_client):
     try:
-        # Initialize session state for spreadsheet ID if not exists
-        if 'spreadsheet_id' not in st.session_state:
-            st.session_state.spreadsheet_id = None
-            st.session_state.is_configured = False
-
-        # If already configured, use the saved ID
-        if st.session_state.is_configured and st.session_state.spreadsheet_id:
-            try:
-                return sheets_client.open_by_key(st.session_state.spreadsheet_id)
-            except Exception as e:
-                st.error(f"Error opening spreadsheet: {str(e)}")
-                st.session_state.is_configured = False
-                return None
-
-        # Show configuration interface
-        st.markdown("### 📊 Spreadsheet Configuration")
-        st.info("This is a one-time setup. Enter your spreadsheet ID below.")
+        # Use the permanent spreadsheet ID
+        SPREADSHEET_ID = "1_VpKh9Ha-43jUFeYyVljAmSCszay_ChD9jiWAbW_jEU"
         
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            spreadsheet_id = st.text_input(
-                "Enter Google Spreadsheet ID",
-                help="Enter the ID from your Google Spreadsheet URL"
-            )
-        with col2:
-            if st.button("Connect"):
-                if spreadsheet_id:
-                    try:
-                        # Test connection
-                        spreadsheet = sheets_client.open_by_key(spreadsheet_id)
-                        st.session_state.spreadsheet_id = spreadsheet_id
-                        st.session_state.is_configured = True
-                        st.success("Successfully connected to spreadsheet!")
-                        st.rerun()
-                        return spreadsheet
-                    except Exception as e:
-                        st.error(f"Error connecting to spreadsheet: {str(e)}")
-                        return None
-                else:
-                    st.error("Please enter a spreadsheet ID")
-                    return None
-
-        st.markdown("---")
-        st.markdown("#### How to find your Spreadsheet ID:")
-        st.markdown("1. Open your Google Sheet")
-        st.markdown("2. Copy the URL")
-        st.markdown("3. The ID is the long string between /d/ and /edit")
-        st.markdown("Example: https://docs.google.com/spreadsheets/d/**THIS-IS-YOUR-SPREADSHEET-ID**/edit")
-        
-        return None
-        
+        try:
+            spreadsheet = sheets_client.open_by_key(SPREADSHEET_ID)
+            return spreadsheet
+        except Exception as e:
+            st.error(f"Error opening spreadsheet: {str(e)}")
+            return None
+            
     except Exception as e:
         st.error(f"Error with spreadsheet: {str(e)}")
         return None
@@ -186,7 +145,7 @@ def get_google_services():
         drive_service = build('drive', 'v3', credentials=credentials)
         sheets_client = gspread.authorize(credentials)
         
-        # Get spreadsheet using saved ID
+        # Get spreadsheet using permanent ID
         spreadsheet = get_spreadsheet(sheets_client)
         
         return drive_service, sheets_client, spreadsheet
@@ -408,13 +367,6 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
 def main():
     st.title("📊 Bid Tracker")
     
-    # Add a way to reset configuration if needed
-    if st.session_state.get('is_configured', False):
-        if st.sidebar.button("Reset Spreadsheet Configuration"):
-            st.session_state.is_configured = False
-            st.session_state.spreadsheet_id = None
-            st.rerun()
-    
     # Initialize Google services and get spreadsheet
     drive_service, sheets_client, spreadsheet = get_google_services()
     if not drive_service or not sheets_client:
@@ -423,6 +375,7 @@ def main():
         
     # Don't proceed if no spreadsheet is connected
     if not spreadsheet:
+        st.error("Could not connect to the bid tracking spreadsheet.")
         return
         
     # Store spreadsheet ID in session state

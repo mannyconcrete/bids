@@ -469,27 +469,87 @@ def display_bid_history(spreadsheet, project_name):
             st.info(f"No bid history found for {project_name}")
             return
         
-        # Display bids in a table
         st.markdown(f"### Bid History for {project_name}")
         
         # Convert data to DataFrame for better display
         df = pd.DataFrame(data)
         
-        # Format currency columns
-        if 'Price' in df.columns:
-            df['Price'] = df['Price'].apply(lambda x: f"${float(str(x).replace('$', '').replace(',', '')):,.2f}")
-        if 'Total' in df.columns:
-            df['Total'] = df['Total'].apply(lambda x: f"${float(str(x).replace('$', '').replace(',', '')):,.2f}")
+        # Add running total
+        df['Running Total'] = df['Total'].cumsum()
         
-        # Display the table
+        # Format currency columns
+        currency_columns = ['Price', 'Total', 'Running Total']
+        for col in currency_columns:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: f"${float(str(x).replace('$', '').replace(',', '')):,.2f}")
+        
+        # Display the main bid history table
         st.dataframe(df, use_container_width=True)
         
-        # Calculate and display total
-        try:
-            total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
-            st.markdown(f"### Project Total: ${total:,.2f}")
-        except:
-            st.warning("Could not calculate project total")
+        # Calculate contractor totals
+        contractor_totals = {}
+        for row in data:
+            contractor = row['Contractor']
+            total = float(str(row['Total']).replace('$', '').replace(',', ''))
+            contractor_totals[contractor] = contractor_totals.get(contractor, 0) + total
+        
+        # Display contractor totals
+        st.markdown("### Contractor Totals")
+        
+        # Create columns for contractor totals
+        cols = st.columns(min(3, len(contractor_totals)))
+        for idx, (contractor, total) in enumerate(sorted(contractor_totals.items())):
+            col_idx = idx % len(cols)
+            with cols[col_idx]:
+                st.metric(
+                    label=contractor,
+                    value=f"${total:,.2f}",
+                    help=f"Total bids for {contractor}"
+                )
+        
+        # Calculate and display project total
+        total_bids = len(data)
+        project_total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
+        
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Bids", total_bids)
+        with col2:
+            st.metric("Project Total", f"${project_total:,.2f}")
+        with col3:
+            if total_bids > 0:
+                avg_bid = project_total / total_bids
+                st.metric("Average Bid", f"${avg_bid:,.2f}")
+        
+        # Material breakdown
+        st.markdown("### Material Breakdown")
+        material_totals = {}
+        for row in data:
+            material = row['Material']
+            total = float(str(row['Total']).replace('$', '').replace(',', ''))
+            if material not in material_totals:
+                material_totals[material] = {
+                    'total': total,
+                    'count': 1,
+                    'avg': total
+                }
+            else:
+                material_totals[material]['total'] += total
+                material_totals[material]['count'] += 1
+                material_totals[material]['avg'] = material_totals[material]['total'] / material_totals[material]['count']
+        
+        # Display material breakdown
+        material_df = pd.DataFrame([
+            {
+                'Material': material,
+                'Total': f"${stats['total']:,.2f}",
+                'Count': stats['count'],
+                'Average': f"${stats['avg']:,.2f}"
+            }
+            for material, stats in material_totals.items()
+        ])
+        st.dataframe(material_df, use_container_width=True)
             
     except Exception as e:
         if "429" in str(e):

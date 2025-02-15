@@ -480,103 +480,148 @@ def add_new_material(spreadsheet, material_name, unit='SF'):
         st.error(f"Error adding material: {str(e)}")
         return False
 
-def display_bid_history(spreadsheet, project_name, project_owner):
+def display_bid_history(worksheet):
+    """Display bid history"""
     try:
-        time.sleep(1)  # Add delay to prevent quota issues
-        project_sheet = spreadsheet.worksheet(project_name)
-        data = project_sheet.get_all_records()
+        # Get contractor profiles
+        contractor_profiles = get_contractor_profiles(worksheet)
         
-        if not data:
-            st.info(f"No bid history found for {project_name}")
-            return
-        
-        st.markdown(f"### Bid History for {project_name}")
-        
-        # Convert data to DataFrame for better display
-        df = pd.DataFrame(data)
-        
-        # Add running total
-        df['Running Total'] = df['Total'].cumsum()
-        
-        # Format currency columns
-        currency_columns = ['Price', 'Total', 'Running Total']
-        for col in currency_columns:
-            if col in df.columns:
-                df[col] = df[col].apply(lambda x: f"${float(str(x).replace('$', '').replace(',', '')):,.2f}")
-        
-        # Display the main bid history table
-        st.dataframe(df, use_container_width=True)
-        
-        # Calculate contractor totals
-        contractor_totals = {}
-        for row in data:
-            contractor = row['Contractor']
-            total = float(str(row['Total']).replace('$', '').replace(',', ''))
-            contractor_totals[contractor] = contractor_totals.get(contractor, 0) + total
-        
-        # Display contractor totals
-        st.markdown("### Contractor Totals")
-        
-        # Create columns for contractor totals
-        cols = st.columns(min(3, len(contractor_totals)))
-        for idx, (contractor, total) in enumerate(sorted(contractor_totals.items())):
-            col_idx = idx % len(cols)
-            with cols[col_idx]:
-                st.metric(
-                    label=contractor,
-                    value=f"${total:,.2f}",
-                    help=f"Total bids for {contractor}"
+        # Create bid entry form
+        st.subheader("Enter New Bid")
+        with st.form("bid_entry_form"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                date = st.date_input("Date", datetime.today())
+                
+                # Contractor profile selection
+                contractors = sorted(list(contractor_profiles.keys()))
+                contractor_choice = st.selectbox(
+                    "Select Contractor",
+                    options=[""] + contractors + ["New Contractor"],
+                    key="contractor_select"
                 )
+                
+                if contractor_choice == "New Contractor":
+                    contractor = st.text_input("Enter New Contractor Name", key="new_contractor")
+                    location = st.text_input("Enter Contractor Location", key="new_location")
+                elif contractor_choice:
+                    contractor = contractor_choice
+                    # Show contractor profile info
+                    profile = contractor_profiles[contractor]
+                    st.info(f"""
+                    **Contractor Profile:**
+                    - Total Bids: {profile['total_bids']}
+                    - Last Used: {profile['last_used']}
+                    """)
+                    
+                    # Location selection from profile
+                    locations = sorted(list(profile['locations']))
+                    location = st.selectbox(
+                        "Select Location",
+                        options=[""] + locations + ["New Location"],
+                        key="location_select"
+                    )
+                    if location == "New Location":
+                        location = st.text_input("Enter New Location", key="additional_location")
+                else:
+                    contractor = ""
+                    location = ""
+            
+            with col2:
+                unit_number = st.text_input("Unit Number")
+                
+                # Material selection with contractor history
+                if contractor_choice and contractor_choice != "New Contractor" and contractor_choice in contractor_profiles:
+                    contractor_materials = sorted(list(contractor_profiles[contractor_choice]['materials']))
+                    material = st.selectbox(
+                        "Material",
+                        options=[""] + contractor_materials + ["New Material"],
+                        key="material_select"
+                    )
+                    if material == "New Material":
+                        material = st.text_input("Enter New Material", key="new_material")
+                else:
+                    material = st.text_input("Material", key="material_input")
+                
+                unit = st.selectbox("Unit", [""] + ["SF", "SY", "LF", "Unit"])
+            
+            with col3:
+                quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
+                price = st.number_input("Price per Unit", min_value=0.0, step=0.1)
+                total = quantity * price
+                st.write(f"Total: ${total:,.2f}")
+            
+            submitted = st.form_submit_button("Submit Bid")
+            
+            if submitted:
+                # Get final contractor and location values
+                final_contractor = contractor
+                final_location = location
+                
+                if not all([final_contractor, final_location, material, unit, quantity > 0, price > 0]):
+                    st.error("Please fill in all required fields")
+                else:
+                    try:
+                        # Prepare row data
+                        row_data = [
+                            date.strftime("%Y-%m-%d"),
+                            final_contractor,
+                            final_location,
+                            unit_number,
+                            material,
+                            unit,
+                            quantity,
+                            price,
+                            total
+                        ]
+                        
+                        # Save to Google Sheet
+                        worksheet.append_row(row_data)
+                        st.success("Bid successfully added!")
+                        time.sleep(0.5)
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error adding bid: {str(e)}")
         
-        # Calculate and display project total
-        total_bids = len(data)
-        project_total = sum(float(str(row['Total']).replace('$', '').replace(',', '')) for row in data)
+        # Display bid history
+        st.subheader("Bid History")
+        bids = get_recent_bids(worksheet)
         
-        st.markdown("---")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Bids", total_bids)
-        with col2:
-            st.metric("Project Total", f"${project_total:,.2f}")
-        with col3:
-            if total_bids > 0:
-                avg_bid = project_total / total_bids
-                st.metric("Average Bid", f"${avg_bid:,.2f}")
-        
-        # Material breakdown
-        st.markdown("### Material Breakdown")
-        material_totals = {}
-        for row in data:
-            material = row['Material']
-            total = float(str(row['Total']).replace('$', '').replace(',', ''))
-            if material not in material_totals:
-                material_totals[material] = {
-                    'total': total,
-                    'count': 1,
-                    'avg': total
-                }
-            else:
-                material_totals[material]['total'] += total
-                material_totals[material]['count'] += 1
-                material_totals[material]['avg'] = material_totals[material]['total'] / material_totals[material]['count']
-        
-        # Display material breakdown
-        material_df = pd.DataFrame([
-            {
-                'Material': material,
-                'Total': f"${stats['total']:,.2f}",
-                'Count': stats['count'],
-                'Average': f"${stats['avg']:,.2f}"
-            }
-            for material, stats in material_totals.items()
-        ])
-        st.dataframe(material_df, use_container_width=True)
+        if bids:
+            # Calculate total value
+            total_value = sum(bid['Total'] for bid in bids)
+            
+            # Display summary metrics
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Total Bids", len(bids))
+            with col2:
+                st.metric("Total Value", f"${total_value:,.2f}")
+            
+            # Convert bids to DataFrame for table display
+            df = pd.DataFrame(bids)
+            df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%Y-%m-%d')
+            df['Price'] = df['Price'].map('${:,.2f}'.format)
+            df['Total'] = df['Total'].map('${:,.2f}'.format)
+            df['Quantity'] = df['Quantity'].map('{:,.1f}'.format)
+            
+            # Reorder columns for display
+            columns = ['Date', 'Contractor', 'Location', 'Unit Number', 
+                      'Material', 'Quantity', 'Unit', 'Price', 'Total']
+            df = df[columns]
+            
+            # Display as table
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.warning("No bids found in the sheet")
             
     except Exception as e:
-        if "429" in str(e):
-            st.error("Rate limit reached. Please wait a moment and try again.")
-        else:
-            st.error(f"Error displaying bid history: {str(e)}")
+        st.error(f"Error displaying bid history: {str(e)}")
 
 def create_new_project(spreadsheet, project_name, owner_name):
     try:
@@ -939,145 +984,6 @@ def get_contractor_profiles(worksheet):
     except Exception as e:
         st.error(f"Error getting contractor profiles: {str(e)}")
         return {}
-
-def display_bid_history(worksheet):
-    """Display bid history"""
-    try:
-        # Get contractor profiles
-        contractor_profiles = get_contractor_profiles(worksheet)
-        
-        # Create bid entry form
-        st.subheader("Enter New Bid")
-        with st.form("bid_entry_form"):
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                date = st.date_input("Date", datetime.today())
-                
-                # Contractor profile selection
-                contractors = sorted(list(contractor_profiles.keys()))
-                if contractors:
-                    contractor = st.selectbox(
-                        "Select Contractor",
-                        options=[""] + contractors + ["New Contractor"],
-                        key="contractor_select"
-                    )
-                    
-                    if contractor == "New Contractor":
-                        contractor = st.text_input("Enter New Contractor Name")
-                        location = st.text_input("Enter Contractor Location")
-                    elif contractor:
-                        # Show contractor profile info
-                        profile = contractor_profiles[contractor]
-                        st.info(f"""
-                        **Contractor Profile:**
-                        - Total Bids: {profile['total_bids']}
-                        - Last Used: {profile['last_used']}
-                        """)
-                        
-                        # Location selection from profile
-                        locations = sorted(list(profile['locations']))
-                        location = st.selectbox(
-                            "Select Location",
-                            options=[""] + locations + ["New Location"],
-                            key="location_select"
-                        )
-                        if location == "New Location":
-                            location = st.text_input("Enter New Location")
-                else:
-                    contractor = st.text_input("Contractor")
-                    location = st.text_input("Location")
-            
-            with col2:
-                unit_number = st.text_input("Unit Number")
-                
-                # Material selection with contractor history
-                if contractor and contractor in contractor_profiles:
-                    contractor_materials = sorted(list(contractor_profiles[contractor]['materials']))
-                    material = st.selectbox(
-                        "Material",
-                        options=[""] + contractor_materials + ["New Material"],
-                        key="material_select"
-                    )
-                    if material == "New Material":
-                        material = st.text_input("Enter New Material")
-                else:
-                    material = st.text_input("Material")
-                
-                unit = st.selectbox("Unit", [""] + ["SF", "SY", "LF", "Unit"])
-            
-            with col3:
-                quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
-                price = st.number_input("Price per Unit", min_value=0.0, step=0.1)
-                total = quantity * price
-                st.write(f"Total: ${total:,.2f}")
-            
-            submitted = st.form_submit_button("Submit Bid")
-            
-            if submitted:
-                if not all([contractor, location, material, unit, quantity > 0, price > 0]):
-                    st.error("Please fill in all required fields")
-                else:
-                    try:
-                        # Prepare row data
-                        row_data = [
-                            date.strftime("%Y-%m-%d"),
-                            contractor,
-                            location,
-                            unit_number,
-                            material,
-                            unit,
-                            quantity,
-                            price,
-                            total
-                        ]
-                        
-                        # Save to Google Sheet
-                        worksheet.append_row(row_data)
-                        st.success("Bid successfully added!")
-                        time.sleep(0.5)
-                        st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Error adding bid: {str(e)}")
-        
-        # Display bid history
-        st.subheader("Bid History")
-        bids = get_recent_bids(worksheet)
-        
-        if bids:
-            # Calculate total value
-            total_value = sum(bid['Total'] for bid in bids)
-            
-            # Display summary metrics
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Total Bids", len(bids))
-            with col2:
-                st.metric("Total Value", f"${total_value:,.2f}")
-            
-            # Convert bids to DataFrame for table display
-            df = pd.DataFrame(bids)
-            df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%Y-%m-%d')
-            df['Price'] = df['Price'].map('${:,.2f}'.format)
-            df['Total'] = df['Total'].map('${:,.2f}'.format)
-            df['Quantity'] = df['Quantity'].map('{:,.1f}'.format)
-            
-            # Reorder columns for display
-            columns = ['Date', 'Contractor', 'Location', 'Unit Number', 
-                      'Material', 'Quantity', 'Unit', 'Price', 'Total']
-            df = df[columns]
-            
-            # Display as table
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.warning("No bids found in the sheet")
-            
-    except Exception as e:
-        st.error(f"Error displaying bid history: {str(e)}")
 
 def main():
     st.title("📊 Bid Tracker")

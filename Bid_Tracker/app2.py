@@ -959,7 +959,11 @@ def project_status_dashboard(spreadsheet):
         # Display existing locations
         st.markdown("### Project Locations")
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
-            stage_info = PROJECT_STAGES[location.get('status', 'Not Started')]
+            # Ensure location has a valid status
+            if 'status' not in location or location['status'] not in PROJECT_STAGES:
+                location['status'] = 'Not Started'
+            
+            stage_info = PROJECT_STAGES[location['status']]
             
             with st.expander(f"{stage_info['icon']} {location['address']} - {location['status']}"):
                 col1, col2 = st.columns([1, 1])

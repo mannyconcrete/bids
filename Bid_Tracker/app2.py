@@ -874,42 +874,43 @@ def format_sheet_name(name):
 def get_recent_bids(worksheet):
     """Get recent bids from Google Sheet"""
     try:
-        # Get all data including headers
-        all_data = worksheet.get_all_values()
+        # Get raw data from worksheet
+        all_values = worksheet.get_all_values()
+        if not all_values:
+            return []
+            
+        # Get headers and data
+        headers = all_values[0]
+        data = all_values[1:]
         
-        # Print the first few rows to see structure
-        st.write("Sheet Headers:", all_data[0])
-        st.write("First Row:", all_data[1] if len(all_data) > 1 else "No data")
-        
-        # Get column names from first row
-        headers = all_data[0]
-        
-        # Convert to records
-        records = []
-        for row in all_data[1:]:  # Skip header row
-            record = {}
+        # Create list of dictionaries
+        bids = []
+        for row in data:
+            bid = {}
             for i, value in enumerate(row):
-                if i < len(headers):  # Ensure we have a header for this column
-                    record[headers[i]] = value
-            records.append(record)
-        
-        # Print all project names to see what we're working with
-        project_names = set(record['Project Name'] for record in records)
-        st.write("All Project Names in Sheet:", project_names)
+                if i < len(headers):
+                    bid[headers[i]] = value
+            if bid:  # Only add non-empty bids
+                bids.append(bid)
         
         # Filter for Misc Concrete Improvements
-        misc_bids = [
-            record for record in records 
-            if "misc concrete improvements" in record['Project Name'].lower()
-        ]
-        
-        st.write(f"Found {len(misc_bids)} Misc Concrete bids")
-        
+        misc_bids = []
+        for bid in bids:
+            project_name = bid.get('Project Name', '').lower()
+            if 'misc' in project_name and 'concrete' in project_name:
+                # Clean numeric values
+                try:
+                    bid['Price'] = float(str(bid['Price']).replace('$', '').replace(',', ''))
+                    bid['Total'] = float(str(bid['Total']).replace('$', '').replace(',', ''))
+                    bid['Quantity'] = float(str(bid['Quantity']).replace(',', ''))
+                    misc_bids.append(bid)
+                except (ValueError, KeyError):
+                    continue
+                    
         return misc_bids
         
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
-        st.write("Exception details:", str(e))
         return []
 
 def display_bid_history(worksheet):
@@ -918,23 +919,38 @@ def display_bid_history(worksheet):
         bids = get_recent_bids(worksheet)
         
         if bids:
-            # Calculate total
-            total = sum(float(bid['Total']) for bid in bids)
-            st.metric("Total Bid Value", f"${total:,.2f}")
+            # Calculate total value
+            total_value = sum(bid['Total'] for bid in bids)
             
-            # Display each bid
+            # Display summary metrics
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Total Bids", len(bids))
+            with col2:
+                st.metric("Total Value", f"${total_value:,.2f}")
+            
+            # Display bids in reverse chronological order
+            st.subheader("Bid Details")
             for bid in reversed(bids):
                 with st.expander(f"📋 {bid['Date']} - {bid['Contractor']}"):
-                    st.write(f"Material: {bid['Material']}")
-                    st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
-                    st.write(f"Price: ${float(bid['Price']):.2f}/unit")
-                    st.write(f"Total: ${float(bid['Total']):,.2f}")
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Project Details:**")
+                        st.write(f"Project: {bid['Project Name']}")
+                        st.write(f"Location: {bid.get('Location', 'N/A')}")
+                        
+                    with col2:
+                        st.write("**Bid Details:**")
+                        st.write(f"Material: {bid['Material']}")
+                        st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
+                        st.write(f"Price: ${bid['Price']:.2f}/unit")
+                        st.write(f"Total: ${bid['Total']:,.2f}")
         else:
-            st.info("No bids found for Misc Concrete Improvements")
+            st.warning("No Misc Concrete Improvement bids found in the sheet")
             
     except Exception as e:
         st.error(f"Error displaying bid history: {str(e)}")
-        st.write("Exception details:", str(e))
 
 def main():
     st.title("📊 Bid Tracker")

@@ -904,9 +904,32 @@ def get_recent_bids(worksheet):
         st.error(f"Error loading bid history: {str(e)}")
         return []
 
+def get_contractor_locations(worksheet):
+    """Get all contractor and location pairs from the sheet"""
+    try:
+        data = worksheet.get_all_records()
+        contractor_locations = {}
+        
+        for row in data:
+            contractor = row.get('Contractor', '')
+            location = row.get('Location', '')
+            if contractor:
+                if contractor not in contractor_locations:
+                    contractor_locations[contractor] = set()
+                if location:
+                    contractor_locations[contractor].add(location)
+                    
+        return contractor_locations
+    except Exception as e:
+        st.error(f"Error getting contractor locations: {str(e)}")
+        return {}
+
 def display_bid_history(worksheet):
     """Display bid history"""
     try:
+        # Get contractor/location pairs
+        contractor_locations = get_contractor_locations(worksheet)
+        
         # Create bid entry form
         st.subheader("Enter New Bid")
         with st.form("bid_entry_form"):
@@ -914,13 +937,56 @@ def display_bid_history(worksheet):
             
             with col1:
                 date = st.date_input("Date", datetime.today())
-                contractor = st.text_input("Contractor")
-                location = st.text_input("Location")
+                
+                # Contractor selection with saved values
+                contractors = sorted(list(contractor_locations.keys()))
+                if contractors:
+                    contractor = st.selectbox(
+                        "Contractor",
+                        options=[""] + contractors + ["New Contractor"],
+                        key="contractor_select"
+                    )
+                    if contractor == "New Contractor":
+                        contractor = st.text_input("Enter New Contractor Name")
+                else:
+                    contractor = st.text_input("Contractor")
+                
+                # Location selection based on contractor
+                if contractor and contractor in contractor_locations:
+                    locations = sorted(list(contractor_locations[contractor]))
+                    location = st.selectbox(
+                        "Location",
+                        options=[""] + locations + ["New Location"],
+                        key="location_select"
+                    )
+                    if location == "New Location":
+                        location = st.text_input("Enter New Location")
+                else:
+                    location = st.text_input("Location")
             
             with col2:
                 unit_number = st.text_input("Unit Number")
-                material = st.text_input("Material")
-                unit = st.selectbox("Unit", ["SF", "SY", "LF", "Unit"])
+                
+                # Get unique materials from sheet
+                all_materials = set()
+                for row in worksheet.get_all_records():
+                    if row.get('Material'):
+                        all_materials.add(row['Material'])
+                
+                # Material selection with saved values
+                materials = sorted(list(all_materials))
+                if materials:
+                    material = st.selectbox(
+                        "Material",
+                        options=[""] + materials + ["New Material"],
+                        key="material_select"
+                    )
+                    if material == "New Material":
+                        material = st.text_input("Enter New Material")
+                else:
+                    material = st.text_input("Material")
+                
+                unit = st.selectbox("Unit", [""] + ["SF", "SY", "LF", "Unit"])
             
             with col3:
                 quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
@@ -931,27 +997,30 @@ def display_bid_history(worksheet):
             submitted = st.form_submit_button("Submit Bid")
             
             if submitted:
-                try:
-                    # Prepare row data
-                    row_data = [
-                        date.strftime("%Y-%m-%d"),
-                        contractor,
-                        location,
-                        unit_number,
-                        material,
-                        unit,
-                        quantity,
-                        price,
-                        total
-                    ]
-                    
-                    # Save to Google Sheet
-                    worksheet.append_row(row_data)
-                    st.success("Bid successfully added!")
-                    time.sleep(0.5)
-                    st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Error adding bid: {str(e)}")
+                if not all([contractor, location, material, unit, quantity > 0, price > 0]):
+                    st.error("Please fill in all required fields")
+                else:
+                    try:
+                        # Prepare row data
+                        row_data = [
+                            date.strftime("%Y-%m-%d"),
+                            contractor,
+                            location,
+                            unit_number,
+                            material,
+                            unit,
+                            quantity,
+                            price,
+                            total
+                        ]
+                        
+                        # Save to Google Sheet
+                        worksheet.append_row(row_data)
+                        st.success("Bid successfully added!")
+                        time.sleep(0.5)
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error adding bid: {str(e)}")
         
         # Display bid history
         st.subheader("Bid History")

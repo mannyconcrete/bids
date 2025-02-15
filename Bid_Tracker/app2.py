@@ -80,12 +80,18 @@ SCOPES = [
 DEFAULT_UNITS = ["SF", "SY", "LF", "Unit"]
 
 # Add this at the top of the file with other initializations
-CONCRETE_STAGES = {
-    'Marked': {'order': 1, 'icon': '🎯', 'color': 'blue'},
-    'Removed': {'order': 2, 'icon': '🏗️', 'color': 'red'},
-    'Formed': {'order': 3, 'icon': '📏', 'color': 'orange'},
-    'Poured': {'order': 4, 'icon': '🏗️', 'color': 'gray'},
-    'Topsoil': {'order': 5, 'icon': '🌱', 'color': 'green'}
+PROJECT_STAGES = {
+    'Not Started': {'icon': '⭕', 'color': 'red'},
+    'In Progress': {'icon': '🔄', 'color': 'orange'},
+    'Completed': {'icon': '✅', 'color': 'green'}
+}
+
+CONCRETE_CHECKLIST = {
+    'Marked': {'order': 1, 'icon': '🎯'},
+    'Removed': {'order': 2, 'icon': '🏗️'},
+    'Formed': {'order': 3, 'icon': '📏'},
+    'Poured': {'order': 4, 'icon': '🏗️'},
+    'Topsoil': {'order': 5, 'icon': '🌱'}
 }
 
 def initialize_session_state():
@@ -854,7 +860,7 @@ def project_status_dashboard(spreadsheet):
         with add_col2:
             new_status = st.selectbox(
                 "Initial Stage",
-                list(CONCRETE_STAGES.keys()),
+                list(PROJECT_STAGES.keys()),
                 key="new_location_status"
             )
         with add_col3:
@@ -869,14 +875,14 @@ def project_status_dashboard(spreadsheet):
                     location_data = {
                         'address': new_location,
                         'status': new_status,
+                        'checklist': {stage: False for stage in CONCRETE_CHECKLIST},
                         'coordinates': [geo_location.latitude, geo_location.longitude],
                         'notes': '',
                         'date_added': datetime.now().strftime("%Y-%m-%d")
                     }
                     
-                    # Save to database first
+                    # Save to database
                     if db.add_project_location(selected_project, location_data):
-                        # Only update session state if database save was successful
                         st.session_state.project_locations[project_key].append(location_data)
                         st.success(f"Added location: {new_location}")
                         st.rerun()
@@ -902,12 +908,12 @@ def project_status_dashboard(spreadsheet):
                     if 'coordinates' in location:
                         # Get stage info
                         current_stage = location.get('status', 'Marked')
-                        stage_info = CONCRETE_STAGES[current_stage]
+                        stage_info = PROJECT_STAGES[current_stage]
                         
                         # Create popup content
                         stages_html = ""
-                        for stage, info in CONCRETE_STAGES.items():
-                            check = "✅" if info['order'] <= CONCRETE_STAGES[current_stage]['order'] else "⬜"
+                        for stage, info in PROJECT_STAGES.items():
+                            check = "✅" if info['order'] <= PROJECT_STAGES[current_stage]['order'] else "⬜"
                             stages_html += f"<p>{check} {info['icon']} {stage}</p>"
                         
                         popup_html = f"""
@@ -947,43 +953,66 @@ def project_status_dashboard(spreadsheet):
             st.markdown("\n".join([
                 f"{info['icon']} **{stage}**  \n"
                 f"_{info['color'].title()} marker_"
-                for stage, info in CONCRETE_STAGES.items()
+                for stage, info in PROJECT_STAGES.items()
             ]))
         
         # Display existing locations
         st.markdown("### Project Locations")
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
-            current_stage = location.get('status', 'Marked')
-            stage_info = CONCRETE_STAGES[current_stage]
+            stage_info = PROJECT_STAGES[location.get('status', 'Not Started')]
             
-            with st.expander(f"{stage_info['icon']} {location['address']} - {current_stage}"):
-                # Stage selection
-                new_status = st.selectbox(
-                    "Current Stage",
-                    list(CONCRETE_STAGES.keys()),
-                    key=f"status_{idx}",
-                    index=list(CONCRETE_STAGES.keys()).index(current_stage)
-                )
+            with st.expander(f"{stage_info['icon']} {location['address']} - {location['status']}"):
+                col1, col2 = st.columns([1, 1])
                 
-                # Show checklist
-                st.markdown("#### Progress Checklist")
-                for stage, info in CONCRETE_STAGES.items():
-                    completed = info['order'] <= CONCRETE_STAGES[new_status]['order']
-                    st.markdown(f"{info['icon']} {stage}: {'✅' if completed else '⬜'}")
-                
-                if new_status != location['status']:
-                    location['status'] = new_status
-                    # Update database
-                    db.update_project_location_status(
-                        project_name=selected_project,
-                        location_address=location['address'],
-                        new_status=new_status
+                with col1:
+                    # Stage selection
+                    new_status = st.selectbox(
+                        "Current Stage",
+                        list(PROJECT_STAGES.keys()),
+                        key=f"status_{idx}",
+                        index=list(PROJECT_STAGES.keys()).index(location.get('status', 'Not Started'))
                     )
+                    
+                    if new_status != location['status']:
+                        location['status'] = new_status
+                        db.update_project_location_status(
+                            project_name=selected_project,
+                            location_address=location['address'],
+                            new_status=new_status
+                        )
                 
-                # Calculate progress percentage
-                progress = (CONCRETE_STAGES[new_status]['order'] / len(CONCRETE_STAGES)) * 100
-                st.progress(progress / 100)
-                st.markdown(f"**Progress:** {progress:.0f}%")
+                with col2:
+                    # Checklist
+                    st.markdown("#### Progress Checklist")
+                    checklist_updated = False
+                    
+                    if 'checklist' not in location:
+                        location['checklist'] = {stage: False for stage in CONCRETE_CHECKLIST}
+                    
+                    for stage, info in CONCRETE_CHECKLIST.items():
+                        checked = st.checkbox(
+                            f"{info['icon']} {stage}",
+                            value=location['checklist'].get(stage, False),
+                            key=f"check_{idx}_{stage}"
+                        )
+                        if checked != location['checklist'].get(stage, False):
+                            location['checklist'][stage] = checked
+                            checklist_updated = True
+                    
+                    if checklist_updated:
+                        db.update_project_location_checklist(
+                            project_name=selected_project,
+                            location_address=location['address'],
+                            checklist=location['checklist']
+                        )
+                
+                # Calculate checklist progress
+                completed_steps = sum(1 for step in location['checklist'].values() if step)
+                total_steps = len(CONCRETE_CHECKLIST)
+                progress = completed_steps / total_steps
+                
+                st.progress(progress)
+                st.markdown(f"**Checklist Progress:** {progress * 100:.0f}%")
                 
                 # Notes section
                 new_notes = st.text_area(
@@ -994,7 +1023,6 @@ def project_status_dashboard(spreadsheet):
                 
                 if new_notes != location.get('notes', ''):
                     location['notes'] = new_notes
-                    # Update database
                     db.update_project_location_notes(
                         project_name=selected_project,
                         location_address=location['address'],

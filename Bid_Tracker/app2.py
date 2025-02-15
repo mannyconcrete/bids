@@ -874,17 +874,31 @@ def format_sheet_name(name):
 def get_recent_bids(worksheet):
     """Get recent bids from Google Sheet"""
     try:
+        # Get all data from the sheet
         data = worksheet.get_all_records()
-        if not data:
-            return []
         
+        # Debug: Print raw data
+        st.write("Debug - Raw Data:")
+        st.write(f"Number of records: {len(data)}")
+        if data:
+            st.write("First record example:")
+            st.write(data[0])
+        
+        # Convert to DataFrame
         df = pd.DataFrame(data)
         
-        # Filter for Misc Concrete Improvements
-        df = df[df['Project Name'].str.contains("Misc Concrete Improvements", case=False, na=False)]
+        # Debug: Print unique project names
+        st.write("Debug - Unique Project Names:")
+        st.write(df['Project Name'].unique())
         
-        # Convert to records
-        return df.to_dict('records')
+        # Filter for Misc Concrete Improvements
+        misc_concrete_bids = df[df['Project Name'].str.contains("Misc Concrete Improvements", case=False, na=False)]
+        
+        # Debug: Print filtered data
+        st.write("Debug - Filtered Data:")
+        st.write(f"Number of Misc Concrete bids: {len(misc_concrete_bids)}")
+        
+        return misc_concrete_bids.to_dict('records')
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
         return []

@@ -1,27 +1,17 @@
 import streamlit as st
 from database import Database
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
-import time
-import json
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Initialize database
 db = Database()
 
-# Initialize all session state variables at the start
-if 'saved_projects' not in st.session_state:
-    st.session_state.saved_projects = {}
-if 'saved_contractors' not in st.session_state:
-    st.session_state.saved_contractors = set()
-if 'client_database' not in st.session_state:
-    st.session_state.client_database = {}
-if 'bid_templates' not in st.session_state:
-    st.session_state.bid_templates = {}
-if 'project_milestones' not in st.session_state:
-    st.session_state.project_milestones = {}
-if 'communication_log' not in st.session_state:
-    st.session_state.communication_log = {}
+# Initialize session state
 if 'materials' not in st.session_state:
     st.session_state.materials = set()
 if 'profile' not in st.session_state:
@@ -31,17 +21,6 @@ if 'profile' not in st.session_state:
     }
 if 'contractors' not in st.session_state:
     st.session_state.contractors = {}
-if 'cache' not in st.session_state:
-    st.session_state.cache = {
-        'spreadsheet': None,
-        'last_refresh': None,
-        'materials': None,
-        'materials_last_refresh': None
-    }
-if 'project_locations' not in st.session_state:
-    st.session_state.project_locations = {}
-if 'project_checklists' not in st.session_state:
-    st.session_state.project_checklists = {}
 
 # Set page config for mobile
 st.set_page_config(
@@ -59,7 +38,7 @@ try:
 except ImportError:
     st.error("""
         Missing required packages. Please run:
-        pip install gspread google-auth google-api-python-client
+        pip install gspread google-auth google-api-python-client python-dotenv
     """)
     st.stop()
 
@@ -100,159 +79,42 @@ def save_contractor_profile(contractor_name, location):
 def get_contractor_location(contractor_name):
     return st.session_state.contractors.get(contractor_name, '')
 
-def get_or_create_spreadsheet(sheets_client):
-    SPREADSHEET_NAME = "Bid Results Tracker"
-    try:
-        # Try to find existing spreadsheet by name
-        spreadsheet_list = sheets_client.list_spreadsheet_files()
-        for spreadsheet in spreadsheet_list:
-            if spreadsheet['name'] == SPREADSHEET_NAME:
-                return sheets_client.open_by_key(spreadsheet['id'])
-        
-        # If not found, create new spreadsheet
-        spreadsheet = sheets_client.create(SPREADSHEET_NAME)
-        
-        # Set up Master Sheet
-        master_sheet = spreadsheet.sheet1
-        master_sheet.update_title("Master Sheet")
-        headers = ["Date", "Contractor", "Project Name", "Project Owner", 
-                  "Location", "Unit Number", "Material", "Unit", 
-                  "Quantity", "Price", "Total"]
-        master_sheet.append_row(headers)
-        
-        # Set up Materials Sheet
-        materials_sheet = spreadsheet.add_worksheet("Materials", 1000, 2)
-        materials_sheet.append_row(["Material", "Unit"])
-        
-        # Share with your email
-        spreadsheet.share(
-            'mannysconcretenj@gmail.com',
-            perm_type='user',
-            role='writer'
-        )
-        
-        st.success(f"Created new spreadsheet: {SPREADSHEET_NAME}")
-        return spreadsheet
-        
-    except Exception as e:
-        st.error(f"Error with spreadsheet: {str(e)}")
-        return None
-
-def get_spreadsheet(sheets_client):
-    try:
-        # Use cached spreadsheet if available and less than 1 minute old
-        if (st.session_state.cache['spreadsheet'] and 
-            st.session_state.cache['last_refresh'] and 
-            datetime.now() - st.session_state.cache['last_refresh'] < timedelta(minutes=1)):
-            return st.session_state.cache['spreadsheet']
-            
-        # Use the permanent spreadsheet ID
-        SPREADSHEET_ID = "1_VpKh9Ha-43jUFeYyVljAmSCszay_ChD9jiWAbW_jEU"
-        
-        try:
-            time.sleep(1)  # Add delay to prevent quota issues
-            spreadsheet = sheets_client.open_by_key(SPREADSHEET_ID)
-            
-            # Update cache
-            st.session_state.cache['spreadsheet'] = spreadsheet
-            st.session_state.cache['last_refresh'] = datetime.now()
-            
-            return spreadsheet
-        except Exception as e:
-            if "429" in str(e):
-                st.error("Rate limit reached. Please wait a moment and try again.")
-            else:
-                st.error(f"Error opening spreadsheet: {str(e)}")
-            return None
-            
-    except Exception as e:
-        st.error(f"Error with spreadsheet: {str(e)}")
-        return None
-
 def get_google_services():
     try:
-        if 'gcp_service_account' not in st.secrets:
-            st.error("No GCP service account secrets found")
-            return None, None, None
-            
-        credentials_dict = st.secrets["gcp_service_account"]
-        
         credentials = service_account.Credentials.from_service_account_info(
-            credentials_dict,
+            st.secrets["gcp_service_account"],
             scopes=SCOPES
         )
         
         drive_service = build('drive', 'v3', credentials=credentials)
         sheets_client = gspread.authorize(credentials)
-        
-        # Get spreadsheet using permanent ID
-        spreadsheet = get_spreadsheet(sheets_client)
-        
-        return drive_service, sheets_client, spreadsheet
+        return drive_service, sheets_client
     except Exception as e:
         st.error(f"Credentials Error: {str(e)}")
-        return None, None, None
+        return None, None
 
 def create_and_share_spreadsheet(drive_service, sheets_client):
     try:
-        SPREADSHEET_NAME = "Bid Results Tracker"
-        
-        # Try to find existing spreadsheet first
+        sheet_name = "Bid Results Tracker"
         try:
-            spreadsheet_list = sheets_client.list_spreadsheet_files()
-            for spreadsheet in spreadsheet_list:
-                if spreadsheet['name'] == SPREADSHEET_NAME:
-                    return sheets_client.open_by_key(spreadsheet['id'])
-        except Exception as e:
-            st.warning(f"Searching for existing spreadsheet: {str(e)}")
-        
-        # If not found, create new spreadsheet
-        spreadsheet = sheets_client.create(SPREADSHEET_NAME)
-        worksheet = spreadsheet.sheet1
-        worksheet.update_title("Master Sheet")
-        
-        # Set up headers for master sheet
-        headers = ["Date", "Contractor", "Project Name", "Project Owner", 
-                  "Location", "Unit Number", "Material", "Unit", 
-                  "Quantity", "Price", "Total"]
-        worksheet.append_row(headers)
-        
-        # Share with your email
-        spreadsheet.share(
-            'mannysconcretenj@gmail.com',
-            perm_type='user',
-            role='writer'
-        )
-        
-        st.success(f"Created new master spreadsheet: {SPREADSHEET_NAME}")
+            spreadsheet = sheets_client.open(sheet_name)
+        except:
+            spreadsheet = sheets_client.create(sheet_name)
+            worksheet = spreadsheet.sheet1
+            worksheet.update_title("Master Sheet")
+            headers = ["Date", "Contractor", "Project Name", "Project Owner", 
+                      "Location", "Unit Number", "Material", "Unit", 
+                      "Quantity", "Price", "Total"]
+            worksheet.append_row(headers)
         return spreadsheet
-        
     except Exception as e:
-        st.error(f"Error with spreadsheet: {str(e)}")
+        st.error(f"Error creating spreadsheet: {str(e)}")
         return None
 
 def delete_row(spreadsheet, sheet_name, row_index):
     try:
-        # Delete from project sheet
-        project_sheet = spreadsheet.worksheet(sheet_name)
-        project_sheet.delete_rows(row_index + 2)  # +2 for header and 1-based index
-        
-        # Find and delete corresponding row in master sheet
-        master_sheet = spreadsheet.worksheet("Master Sheet")
-        master_data = master_sheet.get_all_records()
-        
-        # Get the data from the deleted project row
-        project_data = project_sheet.get_all_records()
-        deleted_row = project_data[row_index - 1]  # -1 because row_index is 1-based
-        
-        # Find matching row in master sheet
-        for i, row in enumerate(master_data):
-            if (row['Date'] == deleted_row['Date'] and 
-                row['Contractor'] == deleted_row['Contractor'] and
-                row['Total'] == deleted_row['Total']):
-                master_sheet.delete_rows(i + 2)  # +2 for header and 1-based index
-                break
-        
+        sheet = spreadsheet.worksheet(sheet_name)
+        sheet.delete_rows(row_index + 2)  # +2 for header and 1-based index
         return True
     except Exception as e:
         st.error(f"Error deleting row: {str(e)}")
@@ -260,63 +122,35 @@ def delete_row(spreadsheet, sheet_name, row_index):
 
 def save_to_sheets(spreadsheet, data, project_name):
     try:
-        time.sleep(1)  # Add delay before saving
+        # Save to Master Sheet
+        master_sheet = spreadsheet.sheet1
+        master_sheet.append_row(data)
         
-        # Always save to Master Sheet
-        master_sheet = spreadsheet.worksheet("Master Sheet")
-        master_sheet.append_row([
-            data[0],  # Date
-            data[1],  # Contractor
-            data[2],  # Project Name
-            data[3],  # Project Owner
-            data[4],  # Location
-            data[5],  # Unit Number
-            data[6],  # Material
-            data[7],  # Unit
-            data[8],  # Quantity
-            data[9],  # Price
-            data[10]  # Total
-        ])
-        
-        time.sleep(1)  # Add delay between operations
-        
-        # Get or create project-specific sheet
+        # Create or update project sheet
         try:
             project_sheet = spreadsheet.worksheet(project_name)
         except:
-            time.sleep(1)  # Add delay before creating new sheet
             project_sheet = spreadsheet.add_worksheet(project_name, 1000, 20)
             headers = ["Date", "Contractor", "Location", "Unit Number",
                       "Material", "Unit", "Quantity", "Price", "Total"]
             project_sheet.append_row(headers)
         
-        time.sleep(1)  # Add delay before final save
-        
         # Format data for project sheet
         project_data = [
             data[0],  # Date
             data[1],  # Contractor
-            data[4],  # Location
-            data[5],  # Unit Number
-            data[6],  # Material
-            data[7],  # Unit
-            data[8],  # Quantity
-            data[9],  # Price
-            data[10]  # Total
+            data[5],  # Location
+            data[6],  # Unit Number
+            data[7],  # Material
+            data[8],  # Unit
+            data[9],  # Quantity
+            data[10], # Price
+            data[11]  # Total
         ]
         project_sheet.append_row(project_data)
-        
-        # Clear cache to force refresh
-        st.session_state.cache['spreadsheet'] = None
-        st.session_state.cache['materials'] = None
-        
         st.success("Bid saved successfully!")
-        
     except Exception as e:
-        if "429" in str(e):
-            st.error("Rate limit reached. Please wait a moment and try again.")
-        else:
-            st.error(f"Error saving bid: {str(e)}")
+        st.error(f"Error saving bid: {str(e)}")
 
 def calculate_contractor_totals(data):
     contractor_totals = {}
@@ -347,657 +181,184 @@ def share_spreadsheet(drive_service, spreadsheet):
     except Exception as e:
         st.error(f"Error sharing spreadsheet: {str(e)}")
 
-def get_or_create_materials_sheet(spreadsheet):
-    try:
-        # Try to get Materials sheet
-        try:
-            materials_sheet = spreadsheet.worksheet("Materials")
-        except:
-            # Create Materials sheet if it doesn't exist
-            materials_sheet = spreadsheet.add_worksheet("Materials", 1000, 2)
-            materials_sheet.append_row(["Material", "Unit"])
-            # Add some default materials
-            default_materials = [
-                ["Concrete sidewalk 4\"", "SF"],
-                ["Concrete apron 6\"", "SF"],
-                ["Belgian block", "LF"],
-                ["Concrete curb", "LF"]
-            ]
-            materials_sheet.append_rows(default_materials)
-        return materials_sheet
-    except Exception as e:
-        st.error(f"Error with materials sheet: {str(e)}")
-        return None
-
-def get_materials_from_sheet(spreadsheet):
-    try:
-        # Use cached materials if available and less than 5 minutes old
-        if (st.session_state.cache['materials'] and 
-            st.session_state.cache['materials_last_refresh'] and 
-            datetime.now() - st.session_state.cache['materials_last_refresh'] < timedelta(minutes=5)):
-            return st.session_state.cache['materials']
-            
-        time.sleep(1)  # Add delay to prevent quota issues
-        materials_sheet = get_or_create_materials_sheet(spreadsheet)
-        if not materials_sheet:
-            return {}
-            
-        # Get all data from the Materials sheet
-        all_data = materials_sheet.get_all_values()
-        
-        # Skip header row and create list of materials
-        materials_data = []
-        for row in all_data[1:]:  # Skip header row
-            if row and len(row) >= 2 and row[0].strip():  # Check for valid rows
-                materials_data.append({
-                    'Material': row[0].strip(),
-                    'Unit': row[1].strip() if len(row) > 1 and row[1].strip() else 'SF'
-                })
-        
-        # Update cache
-        st.session_state.cache['materials'] = materials_data
-        st.session_state.cache['materials_last_refresh'] = datetime.now()
-        
-        return materials_data
-    except Exception as e:
-        st.error(f"Error getting materials: {str(e)}")
-        return {}
-
-def get_material_stats(spreadsheet):
-    try:
-        master_sheet = spreadsheet.worksheet("Master Sheet")
-        data = master_sheet.get_all_records()
-        
-        # Calculate averages by material
-        material_stats = {}
-        for row in data:
-            material = str(row['Material']).strip()
-            if not material:
-                continue
-                
-            unit = row['Unit']
-            try:
-                price = float(str(row['Price']).replace('$', '').replace(',', ''))
-            except (ValueError, TypeError):
-                continue
-            
-            if material not in material_stats:
-                material_stats[material] = {
-                    'units': set([unit]),
-                    'prices': [price],
-                    'total_price': price,
-                    'count': 1,
-                    'default_unit': unit
-                }
-            else:
-                stats = material_stats[material]
-                stats['units'].add(unit)
-                stats['prices'].append(price)
-                stats['total_price'] += price
-                stats['count'] += 1
-        
-        # Calculate averages
-        for material in material_stats:
-            stats = material_stats[material]
-            stats['avg_price'] = stats['total_price'] / stats['count']
-            stats['most_common_unit'] = max(stats['units'], 
-                                          key=lambda x: sum(1 for row in data 
-                                          if row['Material'] == material and row['Unit'] == x))
-            
-        return material_stats
-    except Exception as e:
-        st.error(f"Error calculating material stats: {str(e)}")
-        return {}
-
-def add_new_material(spreadsheet, material_name, unit='SF'):
-    try:
-        time.sleep(1)  # Add delay before operation
-        materials_sheet = get_or_create_materials_sheet(spreadsheet)
-        if not materials_sheet:
-            return False
-            
-        # Check if material already exists
-        materials_data = materials_sheet.get_all_records()
-        if any(row['Material'] == material_name for row in materials_data):
-            st.warning(f"Material '{material_name}' already exists")
-            return False
-            
-        # Add new material
-        materials_sheet.append_row([material_name, unit])
-        
-        # Clear materials cache to force refresh
-        st.session_state.cache['materials'] = None
-        
-        st.success(f"Added new material: {material_name}")
-        return True
-    except Exception as e:
-        st.error(f"Error adding material: {str(e)}")
-        return False
-
-def get_recent_bids(worksheet, project_name=None):
-    """Get recent bids from Google Sheet with totals"""
-    try:
-        data = worksheet.get_all_records()
-        if not data:
-            return [], 0
-        
-        df = pd.DataFrame(data)
-        if project_name:
-            df = df[df['Project Name'] == project_name]
-        
-        # Calculate total value of all bids
-        total_value = df['Total'].sum()
-        
-        # Save contractors and projects to session state
-        st.session_state.saved_contractors.update(df['Contractor'].unique())
-        for _, row in df.iterrows():
-            project_name = format_sheet_name(str(row['Project Name']))
-            if project_name not in st.session_state.saved_projects:
-                st.session_state.saved_projects[project_name] = {
-                    'owner': row['Project Owner'],
-                    'location': row['Location'],
-                    'status': 'Not Started',
-                    'start_date': row['Date'],
-                    'last_updated': datetime.now().strftime('%Y-%m-%d')
-                }
-        
-        return df.to_dict('records')[-10:], total_value  # Return last 10 bids and total
-    except Exception as e:
-        st.error(f"Error loading bid history: {str(e)}")
-        return [], 0
-
-def display_bid_history(worksheet):
-    """Display enhanced bid history with totals"""
-    recent_bids, total_value = get_recent_bids(worksheet)
-    
-    if recent_bids:
-        # Display total value
-        st.metric("Total Bid Value", f"${total_value:,.2f}")
-        
-        # Group bids by project
-        bids_by_project = {}
-        for bid in recent_bids:
-            project = bid['Project Name']
-            if project not in bids_by_project:
-                bids_by_project[project] = []
-            bids_by_project[project].append(bid)
-        
-        # Display bids grouped by project
-        for project, bids in bids_by_project.items():
-            project_total = sum(bid['Total'] for bid in bids)
-            with st.expander(f"📋 {project} - Total: ${project_total:,.2f}"):
-                for bid in reversed(bids):
-                    st.markdown(f"""
-                    **Date:** {bid['Date']}  
-                    **Contractor:** {bid['Contractor']}  
-                    **Material:** {bid['Material']}  
-                    **Quantity:** {bid['Quantity']} {bid['Unit']}  
-                    **Price:** ${bid['Price']:.2f}/unit  
-                    **Total:** ${bid['Total']:,.2f}
-                    ---
-                    """)
-    else:
-        st.info("No bid history available")
-
-def create_new_project(spreadsheet, project_name, owner_name):
-    try:
-        # Format sheet name to include owner
-        sheet_name = f"{project_name} - {owner_name}"
-        
-        # Check if project already exists
-        try:
-            existing_sheet = spreadsheet.worksheet(sheet_name)
-            st.error(f"Project '{project_name}' already exists!")
-            return False
-        except:
-            # Create new project sheet
-            time.sleep(1)  # Add delay before creating sheet
-            project_sheet = spreadsheet.add_worksheet(sheet_name, 1000, 20)
-            headers = ["Date", "Contractor", "Location", "Unit Number",
-                      "Material", "Unit", "Quantity", "Price", "Total"]
-            project_sheet.append_row(headers)
-            
-            # Add to database
-            db.add_project(project_name, owner_name)
-            
-            st.success(f"Created new project: {project_name} for {owner_name}")
-            return True
-            
-    except Exception as e:
-        st.error(f"Error creating project: {str(e)}")
-        return False
-
-def project_tracking_dashboard(spreadsheet):
-    st.markdown("## 📊 Project Tracking Dashboard")
-    
-    # Get all projects
-    projects = db.get_projects()
-    if not projects:
-        st.info("No projects found")
-        return
-        
-    # Summary metrics
-    total_projects = len(projects)
-    active_projects = total_projects  # You can add a status field later if needed
-    
-    # Display summary metrics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Projects", total_projects)
-    with col2:
-        st.metric("Active Projects", active_projects)
-    with col3:
-        st.metric("Completed Projects", total_projects - active_projects)
-    
-    st.markdown("---")
-    
-    # Project Overview
-    st.markdown("### Project Overview")
-    
-    # Initialize totals
-    project_data = []
-    
-    for project_name, owner in projects:
-        try:
-            sheet_name = format_sheet_name(project_name)
-            project_sheet = spreadsheet.worksheet(sheet_name)
-            bids = project_sheet.get_all_records()
-            
-            if not bids:
-                continue
-                
-            # Calculate project metrics
-            total_bids = len(bids)
-            total_value = sum(float(str(bid['Total']).replace('$', '').replace(',', '')) for bid in bids)
-            
-            # Get unique contractors
-            contractors = set(bid['Contractor'] for bid in bids)
-            
-            # Get latest bid date
-            latest_bid = max(bids, key=lambda x: x['Date'])
-            latest_date = latest_bid['Date']
-            
-            # Calculate contractor breakdown
-            contractor_totals = {}
-            for bid in bids:
-                contractor = bid['Contractor']
-                amount = float(str(bid['Total']).replace('$', '').replace(',', ''))
-                contractor_totals[contractor] = contractor_totals.get(contractor, 0) + amount
-            
-            # Find lowest bidder
-            lowest_bidder = min(contractor_totals.items(), key=lambda x: x[1])[0]
-            
-            project_data.append({
-                'Project': project_name,
-                'Owner': owner,
-                'Total Bids': total_bids,
-                'Total Value': total_value,
-                'Contractors': len(contractors),
-                'Latest Activity': latest_date,
-                'Lowest Bidder': lowest_bidder,
-                'Avg Bid': total_value / total_bids if total_bids > 0 else 0
-            })
-            
-        except Exception as e:
-            st.error(f"Error processing {project_name}: {str(e)}")
-    
-    if project_data:
-        # Convert to DataFrame
-        df = pd.DataFrame(project_data)
-        
-        # Format currency columns
-        df['Total Value'] = df['Total Value'].apply(lambda x: f"${x:,.2f}")
-        df['Avg Bid'] = df['Avg Bid'].apply(lambda x: f"${x:,.2f}")
-        
-        # Display project table
-        st.dataframe(df, use_container_width=True)
-        
-        # Project Details Expander
-        for project in project_data:
-            with st.expander(f"📋 {project['Project']} Details"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown(f"**Owner:** {project['Owner']}")
-                    st.markdown(f"**Total Bids:** {project['Total Bids']}")
-                    st.markdown(f"**Total Value:** {project['Total Value']}")
-                
-                with col2:
-                    st.markdown(f"**Contractors:** {project['Contractors']}")
-                    st.markdown(f"**Latest Activity:** {project['Latest Activity']}")
-                    st.markdown(f"**Lowest Bidder:** {project['Lowest Bidder']}")
-                
-                # Get contractor breakdown for this project
-                sheet_name = format_sheet_name(project['Project'])
-                project_sheet = spreadsheet.worksheet(sheet_name)
-                bids = project_sheet.get_all_records()
-                
-                contractor_data = {}
-                for bid in bids:
-                    contractor = bid['Contractor']
-                    amount = float(str(bid['Total']).replace('$', '').replace(',', ''))
-                    if contractor not in contractor_data:
-                        contractor_data[contractor] = {
-                            'total': amount,
-                            'count': 1,
-                            'avg': amount
-                        }
-                    else:
-                        contractor_data[contractor]['total'] += amount
-                        contractor_data[contractor]['count'] += 1
-                        contractor_data[contractor]['avg'] = (
-                            contractor_data[contractor]['total'] / 
-                            contractor_data[contractor]['count']
-                        )
-                
-                # Display contractor breakdown
-                st.markdown("#### Contractor Breakdown")
-                contractor_df = pd.DataFrame([
-                    {
-                        'Contractor': contractor,
-                        'Total Bids': data['count'],
-                        'Total Value': f"${data['total']:,.2f}",
-                        'Average Bid': f"${data['avg']:,.2f}"
-                    }
-                    for contractor, data in contractor_data.items()
-                ])
-                st.dataframe(contractor_df, use_container_width=True)
-
-def geocode_address(address):
-    try:
-        geolocator = Nominatim(user_agent="bid_tracker")
-        location = geolocator.geocode(address)
-        if location:
-            return [location.latitude, location.longitude]
-        return None
-    except Exception as e:
-        st.error(f"Error geocoding address: {str(e)}")
-        return None
-
-def project_status_dashboard(spreadsheet):
-    st.markdown("## 📍 Project Status & Location Tracking")
-    
-    # Get all projects
-    projects = db.get_projects()
-    if not projects:
-        st.info("No projects found")
-        return
-    
-    # Project selection
-    selected_project = st.selectbox(
-        "Select Project",
-        [p[0] for p in projects]
-    )
-    
-    if selected_project:
-        project_owner = db.get_project_owner(selected_project)
-        st.info(f"Project Owner: {project_owner}")
-        
-        # Initialize project data in session state if not exists
-        project_key = f"{selected_project} - {project_owner}"
-        if project_key not in st.session_state.project_locations:
-            st.session_state.project_locations[project_key] = []
-        if project_key not in st.session_state.project_checklists:
-            st.session_state.project_checklists[project_key] = {}
-        
-        # Create columns for map and location management
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # Display map with all locations
-            if st.session_state.project_locations[project_key]:
-                locations_df = pd.DataFrame([
-                    {
-                        'lat': loc.get('latitude', 40.0583),
-                        'lon': loc.get('longitude', -74.4057),
-                        'status': loc.get('status', 'Pending')
-                    }
-                    for loc in st.session_state.project_locations[project_key]
-                ])
-                st.map(locations_df)
-            else:
-                # Default map centered on New Jersey
-                st.map(pd.DataFrame({
-                    'lat': [40.0583],
-                    'lon': [-74.4057]
-                }))
-        
-        with col2:
-            # Add new location
-            st.markdown("### Add Location")
-            new_location = st.text_input("Location Name/Address")
-            col1, col2 = st.columns(2)
-            with col1:
-                latitude = st.number_input("Latitude", value=40.0583, format="%.4f")
-            with col2:
-                longitude = st.number_input("Longitude", value=-74.4057, format="%.4f")
-            
-            if st.button("Add Location"):
-                if new_location:
-                    st.session_state.project_locations[project_key].append({
-                        'address': new_location,
-                        'latitude': latitude,
-                        'longitude': longitude,
-                        'status': 'Pending'
-                    })
-                    st.success(f"Added location: {new_location}")
-                    st.rerun()
-        
-        # Location list and checklists
-        st.markdown("### Project Locations")
-        for idx, location in enumerate(st.session_state.project_locations[project_key]):
-            with st.expander(f"📍 {location['address']}"):
-                # Location coordinates
-                st.markdown(f"**Coordinates:** {location.get('latitude', 40.0583):.4f}, {location.get('longitude', -74.4057):.4f}")
-                
-                # Status selection
-                status = st.selectbox(
-                    "Status",
-                    ["Pending", "In Progress", "Completed"],
-                    key=f"status_{idx}",
-                    index=["Pending", "In Progress", "Completed"].index(location.get('status', 'Pending'))
-                )
-                location['status'] = status
-                
-                # Checklist
-                st.markdown("#### Checklist")
-                if location['address'] not in st.session_state.project_checklists[project_key]:
-                    st.session_state.project_checklists[project_key][location['address']] = {
-                        'Site Preparation': False,
-                        'Materials Delivered': False,
-                        'Work Started': False,
-                        'Work Completed': False,
-                        'Final Inspection': False,
-                        'Client Approval': False
-                    }
-                
-                checklist = st.session_state.project_checklists[project_key][location['address']]
-                for item in checklist:
-                    checklist[item] = st.checkbox(
-                        item,
-                        value=checklist[item],
-                        key=f"check_{idx}_{item}"
-                    )
-                
-                # Notes section
-                if 'notes' not in location:
-                    location['notes'] = ""
-                location['notes'] = st.text_area(
-                    "Notes",
-                    value=location['notes'],
-                    key=f"notes_{idx}"
-                )
-                
-                # Delete location button
-                if st.button("Delete Location", key=f"delete_{idx}"):
-                    st.session_state.project_locations[project_key].pop(idx)
-                    st.rerun()
-        
-        # Project progress
-        st.markdown("### Project Progress")
-        if st.session_state.project_locations[project_key]:
-            total_locations = len(st.session_state.project_locations[project_key])
-            completed = sum(1 for loc in st.session_state.project_locations[project_key] 
-                          if loc['status'] == 'Completed')
-            in_progress = sum(1 for loc in st.session_state.project_locations[project_key] 
-                            if loc['status'] == 'In Progress')
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Locations", total_locations)
-            with col2:
-                st.metric("In Progress", in_progress)
-            with col3:
-                st.metric("Completed", completed)
-            
-            # Progress bar
-            progress = completed / total_locations
-            st.progress(progress)
-            st.markdown(f"**Overall Progress:** {progress * 100:.1f}%")
-
-def format_sheet_name(name):
-    """Format string to be valid sheet name"""
-    # Remove invalid characters
-    invalid_chars = '[]:*?/\\'
-    for char in invalid_chars:
-        name = str(name).replace(char, '')
-    # Truncate to 31 characters (Google Sheets limit)
-    return name[:31]
-
-def bid_entry_page(spreadsheet):
-    st.header("Bid Entry")
-    
-    # Get materials from the Materials sheet
-    try:
-        materials_sheet = spreadsheet.worksheet("Materials")
-        materials_data = materials_sheet.get_all_records()
-        materials_list = [item.get('Material', '') for item in materials_data if item.get('Material')]
-    except Exception as e:
-        st.error(f"Error loading materials: {str(e)}")
-        materials_list = []
-    
-    # Get master sheet
-    try:
-        worksheet = spreadsheet.worksheet("Master Sheet")
-    except Exception as e:
-        st.error(f"Error loading master sheet: {str(e)}")
-        return
-    
-    # Create columns for form and history
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        with st.form("bid_entry_form"):
-            date = st.date_input("Date", datetime.today())
-            
-            # Contractor Selection/Entry
-            if st.session_state.saved_contractors:
-                contractor_options = sorted(list(st.session_state.saved_contractors)) + ["Other"]
-                contractor_choice = st.selectbox("Contractor", options=contractor_options)
-                if contractor_choice == "Other":
-                    contractor = st.text_input("Enter new contractor name")
-                else:
-                    contractor = contractor_choice
-            else:
-                contractor = st.text_input("Contractor")
-            
-            # Project Selection
-            project_options = ["New Project"] + list(st.session_state.saved_projects.keys())
-            project_choice = st.selectbox("Select Project", project_options)
-            
-            if project_choice == "New Project":
-                project_name = st.text_input("Project Name")
-                project_owner = st.text_input("Project Owner")
-                location = st.text_input("Location")
-            else:
-                project_name = project_choice
-                project_data = st.session_state.saved_projects[project_choice]
-                project_owner = project_data['owner']
-                location = project_data['location']
-                st.write(f"Project Owner: {project_owner}")
-                st.write(f"Location: {location}")
-            
-            unit_number = st.text_input("Unit Number")
-            material = st.selectbox("Material", options=materials_list)
-            
-            # Get default unit based on selected material
-            default_unit = next((item.get('Unit', '') for item in materials_data if item.get('Material') == material), '')
-            unit = st.text_input("Unit", value=default_unit)
-            
-            quantity = st.number_input("Quantity", min_value=0.0, format="%f")
-            price = st.number_input("Price per Unit", min_value=0.0, format="%f")
-            
-            # Calculate total
-            total = quantity * price
-            st.write(f"Total: ${total:,.2f}")
-            
-            submitted = st.form_submit_button("Submit Bid")
-            
-            if submitted:
-                try:
-                    # Prepare row data
-                    row_data = [
-                        date.strftime("%Y-%m-%d"),
-                        contractor,
-                        project_name,
-                        project_owner,
-                        location,
-                        unit_number,
-                        material,
-                        unit,
-                        quantity,
-                        price,
-                        total
-                    ]
-                    
-                    # Save to Google Sheet
-                    worksheet.append_row(row_data)
-                    
-                    # Update session state
-                    st.session_state.saved_contractors.add(contractor)
-                    if project_choice == "New Project":
-                        st.session_state.saved_projects[project_name] = {
-                            'owner': project_owner,
-                            'location': location,
-                            'status': 'Not Started',
-                            'start_date': date.strftime("%Y-%m-%d"),
-                            'last_updated': datetime.now().strftime('%Y-%m-%d')
-                        }
-                    
-                    st.success("Bid successfully added!")
-                    time.sleep(0.5)
-                    st.experimental_rerun()
-                    
-                except Exception as e:
-                    st.error(f"Error adding bid: {str(e)}")
-    
-    with col2:
-        st.subheader("Recent Bids")
-        display_bid_history(worksheet)
-
 def main():
     st.title("📊 Bid Tracker")
     
-    # Initialize Google services and get spreadsheet
-    drive_service, sheets_client, spreadsheet = get_google_services()
+    # Initialize Google services
+    drive_service, sheets_client = get_google_services()
     if not drive_service or not sheets_client:
         st.error("Failed to initialize Google services. Please check your credentials.")
         return
-        
-    # Don't proceed if no spreadsheet is connected
+
+    spreadsheet = create_and_share_spreadsheet(drive_service, sheets_client)
     if not spreadsheet:
-        st.error("Could not connect to the bid tracking spreadsheet.")
+        st.error("Failed to access or create spreadsheet.")
         return
     
-    # Add navigation
-    page = st.sidebar.radio("Navigation", ["Bid Entry", "Project Tracking", "Project Status"])
+    # Mobile-friendly navigation
+    page = st.radio("Navigation", ["Projects", "Contractors", "Bid Entry", "History"])
     
-    if page == "Bid Entry":
-        bid_entry_page(spreadsheet)
-    elif page == "Project Tracking":
-        project_tracking_dashboard(spreadsheet)
-    elif page == "Project Status":
-        project_status_dashboard(spreadsheet)
+    if page == "Projects":
+        st.markdown("### Projects")
+        col1, col2 = st.columns(2)
+        with col1:
+            new_project_name = st.text_input("Project Name")
+        with col2:
+            new_project_owner = st.text_input("Project Owner")
+        
+        if st.button("Add Project") and new_project_name and new_project_owner:
+            if db.add_project(new_project_name, new_project_owner):
+                st.success(f"Added project: {new_project_name}")
+            else:
+                st.error("Project already exists")
+        
+        # Show existing projects
+        projects = db.get_projects()
+        if projects:
+            st.markdown("### Existing Projects")
+            df = pd.DataFrame(projects, columns=["Project Name", "Owner"])
+            st.dataframe(df)
+    
+    elif page == "Contractors":
+        st.markdown("### Contractors")
+        col1, col2 = st.columns(2)
+        with col1:
+            new_contractor = st.text_input("Contractor Name")
+        with col2:
+            new_location = st.text_input("Location")
+        
+        if st.button("Add Contractor") and new_contractor and new_location:
+            if db.add_contractor(new_contractor, new_location):
+                st.success(f"Added contractor: {new_contractor}")
+            else:
+                st.error("Contractor already exists")
+        
+        # Show existing contractors
+        contractors = db.get_contractors()
+        if contractors:
+            st.markdown("### Existing Contractors")
+            df = pd.DataFrame(contractors, columns=["Contractor", "Location"])
+            st.dataframe(df)
+    
+    elif page == "Bid Entry":
+        st.markdown("### New Bid")
+        
+        # Project selection
+        projects = db.get_projects()
+        project_names = [p[0] for p in projects]
+        selected_project = st.selectbox("Select Project", project_names)
+        
+        if selected_project:
+            # Contractor selection
+            contractors = db.get_contractors()
+            contractor_names = [c[0] for c in contractors]
+            selected_contractor = st.selectbox("Select Contractor", contractor_names)
+            
+            if selected_contractor:
+                location = db.get_contractor_location(selected_contractor)
+                st.info(f"Location: {location}")
+                
+                # Bid details
+                col1, col2 = st.columns(2)
+                with col1:
+                    unit_number = st.text_input("Unit Number")
+                    material = st.selectbox(
+                        "Material",
+                        options=db.get_materials() + ["Add New Material"]
+                    )
+                    if material == "Add New Material":
+                        material = st.text_input("New Material")
+                        if material:
+                            db.add_material(material)
+                
+                with col2:
+                    unit = st.selectbox("Unit", ["SF", "SY", "LF", "Unit"])
+                    quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
+                    price = st.number_input("Price per Unit", min_value=0.0, step=0.01)
+                
+                total = quantity * price
+                st.markdown(f"### Total: ${total:,.2f}")
+                
+                # Submit bid
+                if st.button("Submit Bid"):
+                    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    data = [
+                        date, selected_contractor,
+                        selected_project, db.get_project_owner(selected_project),
+                        selected_contractor, location, unit_number,
+                        material, unit, quantity, price, total
+                    ]
+                    save_to_sheets(spreadsheet, data, selected_project)
+    
+    elif page == "History":
+        st.markdown("### Bid History")
+        try:
+            worksheet_list = spreadsheet.worksheets()
+            project_sheets = [sheet.title for sheet in worksheet_list if sheet.title != "Master Sheet"]
+            
+            if project_sheets:
+                selected_project = st.selectbox(
+                    "Select Project to View",
+                    options=project_sheets
+                )
+                
+                sheet = spreadsheet.worksheet(selected_project)
+                data = sheet.get_all_records()
+                
+                if data:
+                    # Calculate and display contractor totals
+                    st.markdown("### Project Totals by Contractor")
+                    contractor_totals = calculate_contractor_totals(data)
+                    
+                    # Display totals in columns
+                    cols = st.columns(len(contractor_totals) + 1)
+                    
+                    # Display individual contractor totals
+                    grand_total = 0
+                    for idx, (contractor, total) in enumerate(contractor_totals.items()):
+                        with cols[idx]:
+                            st.metric(
+                                label=contractor,
+                                value=f"${total:,.2f}"
+                            )
+                        grand_total += total
+                    
+                    # Display grand total
+                    with cols[-1]:
+                        st.metric(
+                            label="GRAND TOTAL",
+                            value=f"${grand_total:,.2f}"
+                        )
+                    
+                    # Display bid history
+                    st.markdown("### Detailed Bid History")
+                    df = pd.DataFrame(data)
+                    st.dataframe(df)
+                    
+                    # Delete functionality
+                    row_to_delete = st.number_input(
+                        "Row to Delete",
+                        min_value=1,
+                        max_value=len(data),
+                        value=1
+                    )
+                    if st.button("Delete Selected Row"):
+                        if delete_row(spreadsheet, selected_project, row_to_delete):
+                            st.success(f"Row {row_to_delete} deleted successfully!")
+                            st.rerun()
+                else:
+                    st.info("No bid history found for this project.")
+            else:
+                st.info("No projects found. Add your first bid to create a project sheet.")
+                
+        except Exception as e:
+            st.error(f"Error loading historical data: {str(e)}")
+
+    # Add Share Button in sidebar
+    with st.sidebar:
+        st.markdown("### Spreadsheet Actions")
+        if st.button("📧 Share Spreadsheet to Email"):
+            share_spreadsheet(drive_service, spreadsheet)
 
 if __name__ == "__main__":
     main()

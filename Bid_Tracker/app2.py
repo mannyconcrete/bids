@@ -837,6 +837,15 @@ def project_status_dashboard(spreadsheet):
         if project_key not in st.session_state.project_checklists:
             st.session_state.project_checklists[project_key] = {}
         
+        # Define checklist stages for concrete projects
+        CONCRETE_STAGES = {
+            'Marked': {'order': 1, 'icon': '🎯', 'color': 'blue'},
+            'Removed': {'order': 2, 'icon': '🏗️', 'color': 'red'},
+            'Formed': {'order': 3, 'icon': '📏', 'color': 'orange'},
+            'Poured': {'order': 4, 'icon': '🏗️', 'color': 'gray'},
+            'Topsoil': {'order': 5, 'icon': '🌱', 'color': 'green'}
+        }
+        
         # Add new location section
         st.markdown("### Add New Location")
         add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
@@ -844,8 +853,8 @@ def project_status_dashboard(spreadsheet):
             new_location = st.text_input("Location Name/Address")
         with add_col2:
             new_status = st.selectbox(
-                "Initial Status",
-                ["Pending", "In Progress", "Completed"],
+                "Initial Stage",
+                list(CONCRETE_STAGES.keys()),
                 key="new_location_status"
             )
         with add_col3:
@@ -893,18 +902,24 @@ def project_status_dashboard(spreadsheet):
             for idx, location in enumerate(st.session_state.project_locations[project_key]):
                 try:
                     if 'coordinates' in location:
-                        # Create marker with popup
-                        status_colors = {
-                            'Pending': 'gray',
-                            'In Progress': 'orange',
-                            'Completed': 'green'
-                        }
+                        # Get stage info
+                        current_stage = location.get('status', 'Marked')
+                        stage_info = CONCRETE_STAGES[current_stage]
                         
                         # Create popup content
+                        stages_html = ""
+                        for stage, info in CONCRETE_STAGES.items():
+                            check = "✅" if info['order'] <= CONCRETE_STAGES[current_stage]['order'] else "⬜"
+                            stages_html += f"<p>{check} {info['icon']} {stage}</p>"
+                        
                         popup_html = f"""
                         <div style='width: 200px'>
                             <h4>{location['address']}</h4>
-                            <p><b>Status:</b> {location['status']}</p>
+                            <p><b>Current Stage:</b> {stage_info['icon']} {current_stage}</p>
+                            <div style='margin: 10px 0;'>
+                                <b>Progress:</b>
+                                {stages_html}
+                            </div>
                             <p><b>Notes:</b> {location.get('notes', 'N/A')}</p>
                             <p><b>Added:</b> {location.get('date_added', 'N/A')}</p>
                         </div>
@@ -914,7 +929,7 @@ def project_status_dashboard(spreadsheet):
                         folium.Marker(
                             location=location['coordinates'],
                             popup=folium.Popup(popup_html, max_width=300),
-                            icon=folium.Icon(color=status_colors.get(location['status'], 'gray'))
+                            icon=folium.Icon(color=stage_info['color'])
                         ).add_to(m)
                         
                         markers.append(location['coordinates'])
@@ -930,25 +945,33 @@ def project_status_dashboard(spreadsheet):
             folium_static(m, width=800)
         
         with map_col2:
-            st.markdown("### Location Legend")
-            st.markdown("""
-            🔵 **Status Colors:**
-            - 🔘 Gray: Pending
-            - 🟡 Orange: In Progress
-            - 🟢 Green: Completed
-            """)
+            st.markdown("### Stage Legend")
+            st.markdown("\n".join([
+                f"{info['icon']} **{stage}**  \n"
+                f"_{info['color'].title()} marker_"
+                for stage, info in CONCRETE_STAGES.items()
+            ]))
         
         # Display existing locations
         st.markdown("### Project Locations")
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
-            with st.expander(f"📍 {location['address']}"):
-                # Status selection
+            current_stage = location.get('status', 'Marked')
+            stage_info = CONCRETE_STAGES[current_stage]
+            
+            with st.expander(f"{stage_info['icon']} {location['address']} - {current_stage}"):
+                # Stage selection
                 new_status = st.selectbox(
-                    "Status",
-                    ["Pending", "In Progress", "Completed"],
+                    "Current Stage",
+                    list(CONCRETE_STAGES.keys()),
                     key=f"status_{idx}",
-                    index=["Pending", "In Progress", "Completed"].index(location.get('status', 'Pending'))
+                    index=list(CONCRETE_STAGES.keys()).index(current_stage)
                 )
+                
+                # Show checklist
+                st.markdown("#### Progress Checklist")
+                for stage, info in CONCRETE_STAGES.items():
+                    completed = info['order'] <= CONCRETE_STAGES[new_status]['order']
+                    st.markdown(f"{info['icon']} {stage}: {'✅' if completed else '⬜'}")
                 
                 if new_status != location['status']:
                     location['status'] = new_status
@@ -958,6 +981,11 @@ def project_status_dashboard(spreadsheet):
                         location_address=location['address'],
                         new_status=new_status
                     )
+                
+                # Calculate progress percentage
+                progress = (CONCRETE_STAGES[new_status]['order'] / len(CONCRETE_STAGES)) * 100
+                st.progress(progress / 100)
+                st.markdown(f"**Progress:** {progress:.0f}%")
                 
                 # Notes section
                 new_notes = st.text_area(

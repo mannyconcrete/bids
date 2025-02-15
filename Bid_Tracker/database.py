@@ -152,6 +152,22 @@ class Database:
     def add_project_location(self, project_name, location_data):
         """Add a new location to a project"""
         try:
+            # Validate project exists
+            self.cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,))
+            if not self.cursor.fetchone():
+                print(f"Project {project_name} does not exist")
+                return False
+
+            # Print debug info
+            print(f"Adding location: {location_data}")
+            
+            # Ensure all required fields exist
+            location_data.setdefault('status', 'Not Started')
+            location_data.setdefault('notes', '')
+            location_data.setdefault('checklist', {})
+            location_data.setdefault('date_added', datetime.now().strftime("%Y-%m-%d"))
+
+            # Insert location
             self.cursor.execute("""
                 INSERT INTO project_locations 
                 (project_name, address, status, coordinates, notes, checklist, date_added)
@@ -159,16 +175,19 @@ class Database:
             """, (
                 project_name,
                 location_data['address'],
-                location_data.get('status', 'Not Started'),
+                location_data['status'],
                 json.dumps(location_data['coordinates']),
-                location_data.get('notes', ''),
-                json.dumps(location_data.get('checklist', {})),
-                location_data.get('date_added', datetime.now().strftime("%Y-%m-%d"))
+                location_data['notes'],
+                json.dumps(location_data['checklist']),
+                location_data['date_added']
             ))
             self.conn.commit()
+            print(f"Successfully added location to database")
             return True
         except Exception as e:
-            print(f"Error adding project location: {str(e)}")
+            print(f"Detailed error adding project location: {str(e)}")
+            print(f"Project name: {project_name}")
+            print(f"Location data: {location_data}")
             return False
 
     def update_project_location_status(self, project_name, location_address, new_status):

@@ -904,44 +904,49 @@ def get_recent_bids(worksheet, project_name=None):
                     'last_updated': datetime.now().strftime('%Y-%m-%d')
                 }
         
-        return df.to_dict('records')[-10:], total_value
+        return df.to_dict('records'), total_value  # Return all records for the project
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
         return [], 0
 
 def display_bid_history(worksheet):
     """Display enhanced bid history with totals"""
-    # Try to get bids for "Misc Concrete Improvements"
-    recent_bids, total_value = get_recent_bids(worksheet, "Misc Concrete Improvements")
-    
-    if recent_bids:
-        # Display total value
-        st.metric("Total Bid Value", f"${total_value:,.2f}")
+    try:
+        # Get all bids for "Misc Concrete Improvements"
+        recent_bids, total_value = get_recent_bids(worksheet)
         
-        # Group bids by project
-        bids_by_project = {}
-        for bid in recent_bids:
-            project = bid['Project Name']
-            if project not in bids_by_project:
-                bids_by_project[project] = []
-            bids_by_project[project].append(bid)
-        
-        # Display bids grouped by project
-        for project, bids in bids_by_project.items():
-            project_total = sum(float(bid['Total']) for bid in bids)
-            with st.expander(f"📋 {project} - Total: ${project_total:,.2f}"):
-                for bid in reversed(bids):
-                    st.markdown(f"""
-                    **Date:** {bid['Date']}  
-                    **Contractor:** {bid['Contractor']}  
-                    **Material:** {bid['Material']}  
-                    **Quantity:** {bid['Quantity']} {bid['Unit']}  
-                    **Price:** ${float(bid['Price']):.2f}/unit  
-                    **Total:** ${float(bid['Total']):,.2f}
-                    ---
-                    """)
-    else:
-        st.info("No bid history available for Misc Concrete Improvements")
+        if recent_bids:
+            # Filter for Misc Concrete Improvements
+            misc_concrete_bids = [
+                bid for bid in recent_bids 
+                if "Misc Concrete Improvements" in str(bid['Project Name'])
+            ]
+            
+            if misc_concrete_bids:
+                # Calculate total for Misc Concrete Improvements
+                misc_total = sum(float(bid['Total']) for bid in misc_concrete_bids)
+                st.metric("Total Bid Value", f"${misc_total:,.2f}")
+                
+                # Display bids
+                for bid in reversed(misc_concrete_bids):
+                    with st.expander(f"📋 {bid['Date']} - {bid['Contractor']}"):
+                        st.markdown(f"""
+                        **Project:** {bid['Project Name']}  
+                        **Material:** {bid['Material']}  
+                        **Quantity:** {bid['Quantity']} {bid['Unit']}  
+                        **Price:** ${float(bid['Price']):.2f}/unit  
+                        **Total:** ${float(bid['Total']):,.2f}
+                        ---
+                        """)
+            else:
+                st.info("No bids found for Misc Concrete Improvements")
+        else:
+            st.info("No bid history available")
+            
+    except Exception as e:
+        st.error(f"Error displaying bid history: {str(e)}")
+        st.write("Debug info:")
+        st.write(f"Number of bids: {len(recent_bids) if recent_bids else 0}")
 
 def main():
     st.title("📊 Bid Tracker")

@@ -801,6 +801,16 @@ def geocode_address(address):
 def project_status_dashboard(spreadsheet):
     st.markdown("## 📍 Project Status & Location Tracking")
     
+    try:
+        import folium
+        from folium import plugins
+        from geopy.geocoders import Nominatim
+        from geopy.exc import GeocoderTimedOut
+        from streamlit_folium import folium_static
+    except ImportError:
+        st.error("Please install required packages: pip install folium streamlit-folium geopy")
+        return
+    
     # Get all projects
     projects = db.get_projects()
     if not projects:
@@ -824,22 +834,89 @@ def project_status_dashboard(spreadsheet):
         if project_key not in st.session_state.project_checklists:
             st.session_state.project_checklists[project_key] = {}
         
-        # Location list and checklists
-        st.markdown("### Project Locations")
+        # Create columns for map and location list
+        col1, col2 = st.columns([2, 1])
         
-        # Add new location
-        st.markdown("#### Add New Location")
-        new_location = st.text_input("Location Name/Address")
-        if st.button("Add Location"):
-            if new_location:
-                st.session_state.project_locations[project_key].append({
-                    'address': new_location,
-                    'status': 'Pending'
-                })
-                st.success(f"Added location: {new_location}")
-                st.rerun()
+        with col1:
+            # Initialize map centered on New Jersey
+            m = folium.Map(location=[40.0583, -74.4057], zoom_start=8)
+            
+            # Add locations to map
+            markers = []
+            for idx, location in enumerate(st.session_state.project_locations[project_key]):
+                try:
+                    # Geocode address if not already done
+                    if 'coordinates' not in location:
+                        geolocator = Nominatim(user_agent="bid_tracker")
+                        try:
+                            geo_location = geolocator.geocode(location['address'])
+                            if geo_location:
+                                location['coordinates'] = [geo_location.latitude, geo_location.longitude]
+                        except GeocoderTimedOut:
+                            st.warning(f"Timeout geocoding address: {location['address']}")
+                            continue
+                    
+                    if 'coordinates' in location:
+                        # Create marker with popup
+                        status_colors = {
+                            'Pending': 'gray',
+                            'In Progress': 'orange',
+                            'Completed': 'green'
+                        }
+                        
+                        # Create popup content
+                        popup_html = f"""
+                        <div style='width: 200px'>
+                            <h4>{location['address']}</h4>
+                            <p><b>Status:</b> {location['status']}</p>
+                            <p><b>Notes:</b> {location.get('notes', 'N/A')}</p>
+                        </div>
+                        """
+                        
+                        # Add marker to map
+                        folium.Marker(
+                            location=location['coordinates'],
+                            popup=folium.Popup(popup_html, max_width=300),
+                            icon=folium.Icon(color=status_colors.get(location['status'], 'gray'))
+                        ).add_to(m)
+                        
+                        markers.append(location['coordinates'])
+                
+                except Exception as e:
+                    st.error(f"Error adding marker for {location['address']}: {str(e)}")
+            
+            # Fit map to markers if any exist
+            if markers:
+                m.fit_bounds(markers)
+            
+            # Display map
+            folium_static(m, width=800)
+        
+        with col2:
+            # Add new location
+            st.markdown("### Add New Location")
+            new_location = st.text_input("Location Name/Address")
+            if st.button("Add Location"):
+                if new_location:
+                    # Geocode new location
+                    try:
+                        geolocator = Nominatim(user_agent="bid_tracker")
+                        geo_location = geolocator.geocode(new_location)
+                        if geo_location:
+                            st.session_state.project_locations[project_key].append({
+                                'address': new_location,
+                                'status': 'Pending',
+                                'coordinates': [geo_location.latitude, geo_location.longitude]
+                            })
+                            st.success(f"Added location: {new_location}")
+                            st.experimental_rerun()
+                        else:
+                            st.error("Could not find coordinates for this address")
+                    except Exception as e:
+                        st.error(f"Error geocoding address: {str(e)}")
         
         # Display existing locations
+        st.markdown("### Project Locations")
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
             with st.expander(f"📍 {location['address']}"):
                 # Status selection
@@ -883,7 +960,7 @@ def project_status_dashboard(spreadsheet):
                 # Delete location button
                 if st.button("Delete Location", key=f"delete_{idx}"):
                     st.session_state.project_locations[project_key].pop(idx)
-                    st.rerun()
+                    st.experimental_rerun()
         
         # Project progress
         st.markdown("### Project Progress")

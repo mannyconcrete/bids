@@ -830,14 +830,61 @@ def project_status_dashboard(spreadsheet):
         # Initialize project data in session state if not exists
         project_key = f"{selected_project} - {project_owner}"
         if project_key not in st.session_state.project_locations:
-            st.session_state.project_locations[project_key] = []
+            # Load locations from database
+            locations = db.get_project_locations(selected_project)
+            st.session_state.project_locations[project_key] = locations if locations else []
+            
         if project_key not in st.session_state.project_checklists:
             st.session_state.project_checklists[project_key] = {}
         
-        # Create columns for map and location list
-        col1, col2 = st.columns([2, 1])
+        # Add new location section
+        st.markdown("### Add New Location")
+        add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
+        with add_col1:
+            new_location = st.text_input("Location Name/Address")
+        with add_col2:
+            new_status = st.selectbox(
+                "Initial Status",
+                ["Pending", "In Progress", "Completed"],
+                key="new_location_status"
+            )
+        with add_col3:
+            add_location = st.button("Add Location")
         
-        with col1:
+        if add_location and new_location:
+            try:
+                geolocator = Nominatim(user_agent="bid_tracker")
+                geo_location = geolocator.geocode(new_location)
+                if geo_location:
+                    # Create location data
+                    location_data = {
+                        'address': new_location,
+                        'status': new_status,
+                        'coordinates': [geo_location.latitude, geo_location.longitude],
+                        'notes': '',
+                        'date_added': datetime.now().strftime("%Y-%m-%d")
+                    }
+                    
+                    # Save to database
+                    db.add_project_location(
+                        project_name=selected_project,
+                        location_data=location_data
+                    )
+                    
+                    # Update session state
+                    st.session_state.project_locations[project_key].append(location_data)
+                    st.success(f"Added location: {new_location}")
+                    st.rerun()
+                else:
+                    st.error("Could not find coordinates for this address")
+            except Exception as e:
+                st.error(f"Error adding location: {str(e)}")
+        
+        # Create columns for map and legend
+        st.markdown("### Project Map")
+        map_col1, map_col2 = st.columns([2, 1])
+        
+        with map_col1:
             # Initialize map centered on New Jersey
             m = folium.Map(location=[40.0583, -74.4057], zoom_start=8)
             
@@ -845,17 +892,6 @@ def project_status_dashboard(spreadsheet):
             markers = []
             for idx, location in enumerate(st.session_state.project_locations[project_key]):
                 try:
-                    # Geocode address if not already done
-                    if 'coordinates' not in location:
-                        geolocator = Nominatim(user_agent="bid_tracker")
-                        try:
-                            geo_location = geolocator.geocode(location['address'])
-                            if geo_location:
-                                location['coordinates'] = [geo_location.latitude, geo_location.longitude]
-                        except GeocoderTimedOut:
-                            st.warning(f"Timeout geocoding address: {location['address']}")
-                            continue
-                    
                     if 'coordinates' in location:
                         # Create marker with popup
                         status_colors = {
@@ -870,6 +906,7 @@ def project_status_dashboard(spreadsheet):
                             <h4>{location['address']}</h4>
                             <p><b>Status:</b> {location['status']}</p>
                             <p><b>Notes:</b> {location.get('notes', 'N/A')}</p>
+                            <p><b>Added:</b> {location.get('date_added', 'N/A')}</p>
                         </div>
                         """
                         
@@ -892,73 +929,60 @@ def project_status_dashboard(spreadsheet):
             # Display map
             folium_static(m, width=800)
         
-        with col2:
-            # Add new location
-            st.markdown("### Add New Location")
-            new_location = st.text_input("Location Name/Address")
-            if st.button("Add Location"):
-                if new_location:
-                    # Geocode new location
-                    try:
-                        geolocator = Nominatim(user_agent="bid_tracker")
-                        geo_location = geolocator.geocode(new_location)
-                        if geo_location:
-                            st.session_state.project_locations[project_key].append({
-                                'address': new_location,
-                                'status': 'Pending',
-                                'coordinates': [geo_location.latitude, geo_location.longitude]
-                            })
-                            st.success(f"Added location: {new_location}")
-                            st.rerun()
-                        else:
-                            st.error("Could not find coordinates for this address")
-                    except Exception as e:
-                        st.error(f"Error geocoding address: {str(e)}")
+        with map_col2:
+            st.markdown("### Location Legend")
+            st.markdown("""
+            🔵 **Status Colors:**
+            - 🔘 Gray: Pending
+            - 🟡 Orange: In Progress
+            - 🟢 Green: Completed
+            """)
         
         # Display existing locations
         st.markdown("### Project Locations")
         for idx, location in enumerate(st.session_state.project_locations[project_key]):
             with st.expander(f"📍 {location['address']}"):
                 # Status selection
-                status = st.selectbox(
+                new_status = st.selectbox(
                     "Status",
                     ["Pending", "In Progress", "Completed"],
                     key=f"status_{idx}",
                     index=["Pending", "In Progress", "Completed"].index(location.get('status', 'Pending'))
                 )
-                location['status'] = status
                 
-                # Checklist
-                st.markdown("#### Checklist")
-                if location['address'] not in st.session_state.project_checklists[project_key]:
-                    st.session_state.project_checklists[project_key][location['address']] = {
-                        'Site Preparation': False,
-                        'Materials Delivered': False,
-                        'Work Started': False,
-                        'Work Completed': False,
-                        'Final Inspection': False,
-                        'Client Approval': False
-                    }
-                
-                checklist = st.session_state.project_checklists[project_key][location['address']]
-                for item in checklist:
-                    checklist[item] = st.checkbox(
-                        item,
-                        value=checklist[item],
-                        key=f"check_{idx}_{item}"
+                if new_status != location['status']:
+                    location['status'] = new_status
+                    # Update database
+                    db.update_project_location_status(
+                        project_name=selected_project,
+                        location_address=location['address'],
+                        new_status=new_status
                     )
                 
                 # Notes section
-                if 'notes' not in location:
-                    location['notes'] = ""
-                location['notes'] = st.text_area(
+                new_notes = st.text_area(
                     "Notes",
-                    value=location['notes'],
+                    value=location.get('notes', ''),
                     key=f"notes_{idx}"
                 )
                 
+                if new_notes != location.get('notes', ''):
+                    location['notes'] = new_notes
+                    # Update database
+                    db.update_project_location_notes(
+                        project_name=selected_project,
+                        location_address=location['address'],
+                        new_notes=new_notes
+                    )
+                
                 # Delete location button
                 if st.button("Delete Location", key=f"delete_{idx}"):
+                    # Delete from database
+                    db.delete_project_location(
+                        project_name=selected_project,
+                        location_address=location['address']
+                    )
+                    # Update session state
                     st.session_state.project_locations[project_key].pop(idx)
                     st.rerun()
         

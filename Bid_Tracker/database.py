@@ -103,3 +103,23 @@ class Database:
         cursor.execute('SELECT owner FROM projects WHERE name = ?', (project_name,))
         result = cursor.fetchone()
         return result[0] if result else None
+
+    def get_project_locations(self, project_name):
+        # Get locations for a project
+        pass
+
+    def add_project_location(self, project_name, location_data):
+        # Add a new location to a project
+        pass
+
+    def update_project_location_status(self, project_name, location_address, new_status):
+        # Update location status
+        pass
+
+    def update_project_location_notes(self, project_name, location_address, new_notes):
+        # Update location notes
+        pass
+
+    def delete_project_location(self, project_name, location_address):
+        # Delete a location
+        pass

@@ -868,14 +868,26 @@ def project_status_dashboard(spreadsheet):
         
         if add_location and new_location:
             try:
-                # Check if location already exists
-                if db.location_exists(selected_project, new_location):
-                    st.warning(f"Location '{new_location}' already exists for this project. Please use a different address.")
-                    return
+                print(f"\nDEBUG: Starting location addition process")
+                print(f"Selected project: {selected_project}")
+                print(f"New location: {new_location}")
 
+                # Verify project exists
+                project_owner = db.get_project_owner(selected_project)
+                if not project_owner:
+                    st.error(f"Project '{selected_project}' not found in database")
+                    print(f"ERROR: Project not found in database")
+                    return
+                print(f"DEBUG: Project owner found: {project_owner}")
+
+                # Geocode address
+                print("DEBUG: Starting geocoding")
                 geolocator = Nominatim(user_agent="bid_tracker")
                 geo_location = geolocator.geocode(new_location)
+                
                 if geo_location:
+                    print(f"DEBUG: Geocoding successful: {geo_location.latitude}, {geo_location.longitude}")
+                    
                     # Create location data
                     location_data = {
                         'address': new_location,
@@ -886,28 +898,33 @@ def project_status_dashboard(spreadsheet):
                         'date_added': datetime.now().strftime("%Y-%m-%d")
                     }
                     
-                    print(f"Attempting to save location: {location_data}")
+                    print(f"DEBUG: Created location data: {location_data}")
                     
-                    # Verify project exists
-                    if not db.get_project_owner(selected_project):
-                        st.error(f"Project {selected_project} not found in database")
-                        return
+                    # Initialize project key in session state if needed
+                    project_key = f"{selected_project} - {project_owner}"
+                    if project_key not in st.session_state.project_locations:
+                        st.session_state.project_locations[project_key] = []
+                        print(f"DEBUG: Initialized project_key in session state: {project_key}")
                     
                     # Save to database
+                    print("DEBUG: Attempting database save")
                     if db.add_project_location(selected_project, location_data):
-                        if project_key not in st.session_state.project_locations:
-                            st.session_state.project_locations[project_key] = []
+                        print("DEBUG: Database save successful")
                         st.session_state.project_locations[project_key].append(location_data)
-                        st.success(f"Added location: {new_location}")
-                        time.sleep(0.5)  # Give the database time to complete the transaction
+                        st.success(f"Successfully added location: {new_location}")
+                        time.sleep(0.5)
                         st.rerun()
                     else:
-                        st.error("Failed to save location to database. Please try again.")
+                        print("ERROR: Database save failed")
+                        st.error("Failed to save location to database. Please check the logs for details.")
                 else:
-                    st.error("Could not find coordinates for this address. Please check the address and try again.")
+                    print(f"ERROR: Geocoding failed for address: {new_location}")
+                    st.error("Could not find coordinates for this address. Please verify the address is correct.")
+                    
             except Exception as e:
+                print(f"ERROR: Unexpected error in location addition: {str(e)}")
+                print(f"ERROR: Error type: {type(e)}")
                 st.error(f"Error adding location: {str(e)}")
-                print(f"Detailed error: {str(e)}")
         
         # Create columns for map and legend
         st.markdown("### Project Map")

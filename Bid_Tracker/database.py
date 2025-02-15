@@ -9,21 +9,30 @@ class Database:
             self.conn = sqlite3.connect('bid_tracker.db', check_same_thread=False)
             self.cursor = self.conn.cursor()
             
-            # Create tables if they don't exist
+            # Drop and recreate the project_locations table
+            self.cursor.execute("DROP TABLE IF EXISTS project_locations")
+            
+            # Create table with all required columns
             self.cursor.execute("""
-                CREATE TABLE IF NOT EXISTS project_locations (
+                CREATE TABLE project_locations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_name TEXT,
-                    address TEXT,
+                    project_name TEXT NOT NULL,
+                    address TEXT NOT NULL,
                     status TEXT DEFAULT 'Not Started',
                     coordinates TEXT,
-                    notes TEXT,
-                    checklist TEXT,
+                    notes TEXT DEFAULT '',
+                    checklist TEXT DEFAULT '{}',
                     date_added TEXT,
-                    UNIQUE(project_name, address)
+                    UNIQUE(project_name, address),
+                    FOREIGN KEY(project_name) REFERENCES projects(name)
                 )
             """)
             self.conn.commit()
+            
+            # Verify table structure
+            self.cursor.execute("PRAGMA table_info(project_locations)")
+            columns = self.cursor.fetchall()
+            print("DEBUG: Table columns:", [col[1] for col in columns])
             
         except Exception as e:
             print(f"Database initialization error: {str(e)}")
@@ -165,6 +174,15 @@ class Database:
     def add_project_location(self, project_name, location_data):
         """Add a new location to a project"""
         try:
+            # Verify table structure
+            self.cursor.execute("PRAGMA table_info(project_locations)")
+            columns = [col[1] for col in self.cursor.fetchall()]
+            print(f"DEBUG: Available columns: {columns}")
+            
+            if 'checklist' not in columns:
+                print("ERROR: Checklist column missing from table")
+                return False
+
             # Print incoming data for debugging
             print("\nDEBUG: Starting add_project_location")
             print(f"Project name: {project_name}")

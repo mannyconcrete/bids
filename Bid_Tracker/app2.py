@@ -580,7 +580,7 @@ def display_bid_history(worksheet):
                         worksheet.append_row(row_data)
                         st.success("Bid successfully added!")
                         time.sleep(0.5)
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error adding bid: {str(e)}")
         
@@ -909,7 +909,7 @@ def project_status_dashboard(spreadsheet):
                                 'coordinates': [geo_location.latitude, geo_location.longitude]
                             })
                             st.success(f"Added location: {new_location}")
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error("Could not find coordinates for this address")
                     except Exception as e:
@@ -960,7 +960,7 @@ def project_status_dashboard(spreadsheet):
                 # Delete location button
                 if st.button("Delete Location", key=f"delete_{idx}"):
                     st.session_state.project_locations[project_key].pop(idx)
-                    st.experimental_rerun()
+                    st.rerun()
         
         # Project progress
         st.markdown("### Project Progress")

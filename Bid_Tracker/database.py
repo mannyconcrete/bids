@@ -149,9 +149,27 @@ class Database:
             print(f"Error getting project locations: {str(e)}")
             return []
 
+    def location_exists(self, project_name, address):
+        """Check if a location already exists for a project"""
+        try:
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM project_locations 
+                WHERE project_name = ? AND address = ?
+            """, (project_name, address))
+            count = self.cursor.fetchone()[0]
+            return count > 0
+        except Exception as e:
+            print(f"Error checking location existence: {str(e)}")
+            return False
+
     def add_project_location(self, project_name, location_data):
         """Add a new location to a project"""
         try:
+            # Check if location already exists
+            if self.location_exists(project_name, location_data['address']):
+                print(f"Location {location_data['address']} already exists for project {project_name}")
+                return False
+
             # Validate project exists
             self.cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,))
             if not self.cursor.fetchone():
@@ -169,7 +187,7 @@ class Database:
 
             # Insert location
             self.cursor.execute("""
-                INSERT INTO project_locations 
+                INSERT OR REPLACE INTO project_locations 
                 (project_name, address, status, coordinates, notes, checklist, date_added)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (

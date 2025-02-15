@@ -871,82 +871,46 @@ def format_sheet_name(name):
     # Truncate to 31 characters (Google Sheets limit)
     return name[:31]
 
-def get_recent_bids(worksheet, project_name=None):
-    """Get recent bids from Google Sheet with totals"""
+def get_recent_bids(worksheet):
+    """Get recent bids from Google Sheet"""
     try:
-        # Use the permanent spreadsheet ID
-        SPREADSHEET_ID = "1_VpKh9Ha-43jUFeYyVljAmSCszay_ChD9jiWAbW_jEU"
-        
         data = worksheet.get_all_records()
         if not data:
-            return [], 0
+            return []
         
         df = pd.DataFrame(data)
         
-        # Filter by project if specified
-        if project_name:
-            df = df[df['Project Name'].str.contains(project_name, case=False, na=False)]
+        # Filter for Misc Concrete Improvements
+        df = df[df['Project Name'].str.contains("Misc Concrete Improvements", case=False, na=False)]
         
-        # Calculate total value of all bids
-        df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
-        total_value = df['Total'].sum()
-        
-        # Save contractors and projects to session state
-        st.session_state.saved_contractors.update(df['Contractor'].unique())
-        for _, row in df.iterrows():
-            project_key = format_sheet_name(str(row['Project Name']))
-            if project_key not in st.session_state.saved_projects:
-                st.session_state.saved_projects[project_key] = {
-                    'owner': row['Project Owner'],
-                    'location': row['Location'],
-                    'status': 'Not Started',
-                    'start_date': row['Date'],
-                    'last_updated': datetime.now().strftime('%Y-%m-%d')
-                }
-        
-        return df.to_dict('records'), total_value  # Return all records for the project
+        # Convert to records
+        return df.to_dict('records')
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
-        return [], 0
+        return []
 
 def display_bid_history(worksheet):
-    """Display enhanced bid history with totals"""
+    """Display bid history"""
     try:
-        # Get all bids for "Misc Concrete Improvements"
-        recent_bids, total_value = get_recent_bids(worksheet)
+        bids = get_recent_bids(worksheet)
         
-        if recent_bids:
-            # Filter for Misc Concrete Improvements
-            misc_concrete_bids = [
-                bid for bid in recent_bids 
-                if "Misc Concrete Improvements" in str(bid['Project Name'])
-            ]
+        if bids:
+            # Calculate total
+            total = sum(float(bid['Total']) for bid in bids)
+            st.metric("Total Bid Value", f"${total:,.2f}")
             
-            if misc_concrete_bids:
-                # Calculate total for Misc Concrete Improvements
-                misc_total = sum(float(bid['Total']) for bid in misc_concrete_bids)
-                st.metric("Total Bid Value", f"${misc_total:,.2f}")
-                
-                # Display bids
-                for bid in reversed(misc_concrete_bids):
-                    with st.expander(f"📋 {bid['Date']} - {bid['Contractor']}"):
-                        st.markdown(f"""
-                        **Project:** {bid['Project Name']}  
-                        **Material:** {bid['Material']}  
-                        **Quantity:** {bid['Quantity']} {bid['Unit']}  
-                        **Price:** ${float(bid['Price']):.2f}/unit  
-                        **Total:** ${float(bid['Total']):,.2f}
-                        ---
-                        """)
-            else:
-                st.info("No bids found for Misc Concrete Improvements")
+            # Display each bid
+            for bid in reversed(bids):
+                with st.expander(f"📋 {bid['Date']} - {bid['Contractor']}"):
+                    st.write(f"Material: {bid['Material']}")
+                    st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
+                    st.write(f"Price: ${float(bid['Price']):.2f}/unit")
+                    st.write(f"Total: ${float(bid['Total']):,.2f}")
         else:
-            st.info("No bid history available")
+            st.info("No bids found for Misc Concrete Improvements")
             
     except Exception as e:
         st.error(f"Error displaying bid history: {str(e)}")
-        st.write("Debug info:")
-        st.write(f"Number of bids: {len(recent_bids) if recent_bids else 0}")
 
 def main():
     st.title("📊 Bid Tracker")

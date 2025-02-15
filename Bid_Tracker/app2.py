@@ -874,16 +874,14 @@ def project_status_dashboard(spreadsheet):
                         'date_added': datetime.now().strftime("%Y-%m-%d")
                     }
                     
-                    # Save to database
-                    db.add_project_location(
-                        project_name=selected_project,
-                        location_data=location_data
-                    )
-                    
-                    # Update session state
-                    st.session_state.project_locations[project_key].append(location_data)
-                    st.success(f"Added location: {new_location}")
-                    st.rerun()
+                    # Save to database first
+                    if db.add_project_location(selected_project, location_data):
+                        # Only update session state if database save was successful
+                        st.session_state.project_locations[project_key].append(location_data)
+                        st.success(f"Added location: {new_location}")
+                        st.rerun()
+                    else:
+                        st.error("Failed to save location to database")
                 else:
                     st.error("Could not find coordinates for this address")
             except Exception as e:

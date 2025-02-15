@@ -79,6 +79,15 @@ SCOPES = [
 # Default units
 DEFAULT_UNITS = ["SF", "SY", "LF", "Unit"]
 
+# Add this at the top of the file with other initializations
+CONCRETE_STAGES = {
+    'Marked': {'order': 1, 'icon': '🎯', 'color': 'blue'},
+    'Removed': {'order': 2, 'icon': '🏗️', 'color': 'red'},
+    'Formed': {'order': 3, 'icon': '📏', 'color': 'orange'},
+    'Poured': {'order': 4, 'icon': '🏗️', 'color': 'gray'},
+    'Topsoil': {'order': 5, 'icon': '🌱', 'color': 'green'}
+}
+
 def initialize_session_state():
     if 'profile' not in st.session_state:
         st.session_state.profile = {
@@ -836,15 +845,6 @@ def project_status_dashboard(spreadsheet):
             
         if project_key not in st.session_state.project_checklists:
             st.session_state.project_checklists[project_key] = {}
-        
-        # Define checklist stages for concrete projects
-        CONCRETE_STAGES = {
-            'Marked': {'order': 1, 'icon': '🎯', 'color': 'blue'},
-            'Removed': {'order': 2, 'icon': '🏗️', 'color': 'red'},
-            'Formed': {'order': 3, 'icon': '📏', 'color': 'orange'},
-            'Poured': {'order': 4, 'icon': '🏗️', 'color': 'gray'},
-            'Topsoil': {'order': 5, 'icon': '🌱', 'color': 'green'}
-        }
         
         # Add new location section
         st.markdown("### Add New Location")

@@ -868,12 +868,20 @@ def bid_entry_page(spreadsheet):
     st.header("Bid Entry")
     
     # Get materials from the Materials sheet
-    materials_sheet = spreadsheet.worksheet("Materials")
-    materials_data = materials_sheet.get_all_records()
-    materials_list = [item.get('Material', '') for item in materials_data if item.get('Material')]
+    try:
+        materials_sheet = spreadsheet.worksheet("Materials")
+        materials_data = materials_sheet.get_all_records()
+        materials_list = [item.get('Material', '') for item in materials_data if item.get('Material')]
+    except Exception as e:
+        st.error(f"Error loading materials: {str(e)}")
+        materials_list = []
     
     # Get master sheet
-    worksheet = spreadsheet.worksheet("Master Sheet")
+    try:
+        worksheet = spreadsheet.worksheet("Master Sheet")
+    except Exception as e:
+        st.error(f"Error loading master sheet: {str(e)}")
+        return
     
     # Create columns for form and history
     col1, col2 = st.columns([2, 1])

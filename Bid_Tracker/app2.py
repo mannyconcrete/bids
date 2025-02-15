@@ -874,13 +874,18 @@ def format_sheet_name(name):
 def get_recent_bids(worksheet, project_name=None):
     """Get recent bids from Google Sheet with totals"""
     try:
+        # Use the permanent spreadsheet ID
+        SPREADSHEET_ID = "1_VpKh9Ha-43jUFeYyVljAmSCszay_ChD9jiWAbW_jEU"
+        
         data = worksheet.get_all_records()
         if not data:
             return [], 0
         
         df = pd.DataFrame(data)
+        
+        # Filter by project if specified
         if project_name:
-            df = df[df['Project Name'] == project_name]
+            df = df[df['Project Name'].str.contains(project_name, case=False, na=False)]
         
         # Calculate total value of all bids
         df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
@@ -899,14 +904,15 @@ def get_recent_bids(worksheet, project_name=None):
                     'last_updated': datetime.now().strftime('%Y-%m-%d')
                 }
         
-        return df.to_dict('records')[-10:], total_value  # Return last 10 bids and total
+        return df.to_dict('records')[-10:], total_value
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
         return [], 0
 
 def display_bid_history(worksheet):
     """Display enhanced bid history with totals"""
-    recent_bids, total_value = get_recent_bids(worksheet)
+    # Try to get bids for "Misc Concrete Improvements"
+    recent_bids, total_value = get_recent_bids(worksheet, "Misc Concrete Improvements")
     
     if recent_bids:
         # Display total value
@@ -935,7 +941,7 @@ def display_bid_history(worksheet):
                     ---
                     """)
     else:
-        st.info("No bid history available")
+        st.info("No bid history available for Misc Concrete Improvements")
 
 def main():
     st.title("📊 Bid Tracker")

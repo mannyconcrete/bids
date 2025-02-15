@@ -904,31 +904,47 @@ def get_recent_bids(worksheet):
         st.error(f"Error loading bid history: {str(e)}")
         return []
 
-def get_contractor_locations(worksheet):
-    """Get all contractor and location pairs from the sheet"""
+def get_contractor_profiles(worksheet):
+    """Get all contractor profiles from the sheet"""
     try:
         data = worksheet.get_all_records()
-        contractor_locations = {}
+        profiles = {}
         
-        for row in data:
+        # Get master sheet for all historical data
+        spreadsheet = worksheet.spreadsheet
+        master_sheet = spreadsheet.worksheet("Master Sheet")
+        master_data = master_sheet.get_all_records()
+        
+        # Combine current and master sheet data
+        all_data = data + master_data
+        
+        for row in all_data:
             contractor = row.get('Contractor', '')
             location = row.get('Location', '')
             if contractor:
-                if contractor not in contractor_locations:
-                    contractor_locations[contractor] = set()
+                if contractor not in profiles:
+                    profiles[contractor] = {
+                        'locations': set(),
+                        'last_used': row.get('Date', ''),
+                        'total_bids': 0,
+                        'materials': set()
+                    }
                 if location:
-                    contractor_locations[contractor].add(location)
+                    profiles[contractor]['locations'].add(location)
+                profiles[contractor]['total_bids'] += 1
+                if row.get('Material'):
+                    profiles[contractor]['materials'].add(row.get('Material'))
                     
-        return contractor_locations
+        return profiles
     except Exception as e:
-        st.error(f"Error getting contractor locations: {str(e)}")
+        st.error(f"Error getting contractor profiles: {str(e)}")
         return {}
 
 def display_bid_history(worksheet):
     """Display bid history"""
     try:
-        # Get contractor/location pairs
-        contractor_locations = get_contractor_locations(worksheet)
+        # Get contractor profiles
+        contractor_profiles = get_contractor_profiles(worksheet)
         
         # Create bid entry form
         st.subheader("Enter New Bid")
@@ -938,47 +954,49 @@ def display_bid_history(worksheet):
             with col1:
                 date = st.date_input("Date", datetime.today())
                 
-                # Contractor selection with saved values
-                contractors = sorted(list(contractor_locations.keys()))
+                # Contractor profile selection
+                contractors = sorted(list(contractor_profiles.keys()))
                 if contractors:
                     contractor = st.selectbox(
-                        "Contractor",
+                        "Select Contractor",
                         options=[""] + contractors + ["New Contractor"],
                         key="contractor_select"
                     )
+                    
                     if contractor == "New Contractor":
                         contractor = st.text_input("Enter New Contractor Name")
+                        location = st.text_input("Enter Contractor Location")
+                    elif contractor:
+                        # Show contractor profile info
+                        profile = contractor_profiles[contractor]
+                        st.info(f"""
+                        **Contractor Profile:**
+                        - Total Bids: {profile['total_bids']}
+                        - Last Used: {profile['last_used']}
+                        """)
+                        
+                        # Location selection from profile
+                        locations = sorted(list(profile['locations']))
+                        location = st.selectbox(
+                            "Select Location",
+                            options=[""] + locations + ["New Location"],
+                            key="location_select"
+                        )
+                        if location == "New Location":
+                            location = st.text_input("Enter New Location")
                 else:
                     contractor = st.text_input("Contractor")
-                
-                # Location selection based on contractor
-                if contractor and contractor in contractor_locations:
-                    locations = sorted(list(contractor_locations[contractor]))
-                    location = st.selectbox(
-                        "Location",
-                        options=[""] + locations + ["New Location"],
-                        key="location_select"
-                    )
-                    if location == "New Location":
-                        location = st.text_input("Enter New Location")
-                else:
                     location = st.text_input("Location")
             
             with col2:
                 unit_number = st.text_input("Unit Number")
                 
-                # Get unique materials from sheet
-                all_materials = set()
-                for row in worksheet.get_all_records():
-                    if row.get('Material'):
-                        all_materials.add(row['Material'])
-                
-                # Material selection with saved values
-                materials = sorted(list(all_materials))
-                if materials:
+                # Material selection with contractor history
+                if contractor and contractor in contractor_profiles:
+                    contractor_materials = sorted(list(contractor_profiles[contractor]['materials']))
                     material = st.selectbox(
                         "Material",
-                        options=[""] + materials + ["New Material"],
+                        options=[""] + contractor_materials + ["New Material"],
                         key="material_select"
                     )
                     if material == "New Material":

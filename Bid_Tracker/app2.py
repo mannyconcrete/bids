@@ -1,5 +1,5 @@
 import streamlit as st
-from database import Database
+from database import database
 import pandas as pd
 from datetime import datetime, timedelta
 import os

@@ -881,17 +881,26 @@ def project_status_dashboard(spreadsheet):
                         'date_added': datetime.now().strftime("%Y-%m-%d")
                     }
                     
+                    print(f"Attempting to save location: {location_data}")
+                    
+                    # Verify project exists
+                    if not db.get_project_owner(selected_project):
+                        st.error(f"Project {selected_project} not found in database")
+                        return
+                    
                     # Save to database
                     if db.add_project_location(selected_project, location_data):
                         st.session_state.project_locations[project_key].append(location_data)
                         st.success(f"Added location: {new_location}")
+                        time.sleep(0.5)  # Give the database time to complete the transaction
                         st.rerun()
                     else:
-                        st.error("Failed to save location to database")
+                        st.error("Failed to save location. Check if location already exists.")
                 else:
                     st.error("Could not find coordinates for this address")
             except Exception as e:
                 st.error(f"Error adding location: {str(e)}")
+                print(f"Detailed error: {str(e)}")
         
         # Create columns for map and legend
         st.markdown("### Project Map")

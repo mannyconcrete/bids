@@ -883,14 +883,15 @@ def get_recent_bids(worksheet, project_name=None):
             df = df[df['Project Name'] == project_name]
         
         # Calculate total value of all bids
+        df['Total'] = pd.to_numeric(df['Total'], errors='coerce')
         total_value = df['Total'].sum()
         
         # Save contractors and projects to session state
         st.session_state.saved_contractors.update(df['Contractor'].unique())
         for _, row in df.iterrows():
-            project_name = format_sheet_name(str(row['Project Name']))
-            if project_name not in st.session_state.saved_projects:
-                st.session_state.saved_projects[project_name] = {
+            project_key = format_sheet_name(str(row['Project Name']))
+            if project_key not in st.session_state.saved_projects:
+                st.session_state.saved_projects[project_key] = {
                     'owner': row['Project Owner'],
                     'location': row['Location'],
                     'status': 'Not Started',
@@ -902,6 +903,39 @@ def get_recent_bids(worksheet, project_name=None):
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
         return [], 0
+
+def display_bid_history(worksheet):
+    """Display enhanced bid history with totals"""
+    recent_bids, total_value = get_recent_bids(worksheet)
+    
+    if recent_bids:
+        # Display total value
+        st.metric("Total Bid Value", f"${total_value:,.2f}")
+        
+        # Group bids by project
+        bids_by_project = {}
+        for bid in recent_bids:
+            project = bid['Project Name']
+            if project not in bids_by_project:
+                bids_by_project[project] = []
+            bids_by_project[project].append(bid)
+        
+        # Display bids grouped by project
+        for project, bids in bids_by_project.items():
+            project_total = sum(float(bid['Total']) for bid in bids)
+            with st.expander(f"📋 {project} - Total: ${project_total:,.2f}"):
+                for bid in reversed(bids):
+                    st.markdown(f"""
+                    **Date:** {bid['Date']}  
+                    **Contractor:** {bid['Contractor']}  
+                    **Material:** {bid['Material']}  
+                    **Quantity:** {bid['Quantity']} {bid['Unit']}  
+                    **Price:** ${float(bid['Price']):.2f}/unit  
+                    **Total:** ${float(bid['Total']):,.2f}
+                    ---
+                    """)
+    else:
+        st.info("No bid history available")
 
 def main():
     st.title("📊 Bid Tracker")
@@ -963,8 +997,8 @@ def main():
             
             # Display bid history for the selected project
             try:
-                sheet_name = format_sheet_name(selected_project, project_owner)
-                display_bid_history(spreadsheet, selected_project, project_owner)
+                sheet_name = format_sheet_name(selected_project)
+                display_bid_history(spreadsheet.worksheet(sheet_name))
             except Exception as e:
                 st.error(f"Error displaying bid history: {str(e)}")
             

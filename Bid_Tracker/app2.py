@@ -907,6 +907,54 @@ def get_recent_bids(worksheet):
 def display_bid_history(worksheet):
     """Display bid history"""
     try:
+        # Create bid entry form
+        st.subheader("Enter New Bid")
+        with st.form("bid_entry_form"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                date = st.date_input("Date", datetime.today())
+                contractor = st.text_input("Contractor")
+                location = st.text_input("Location")
+            
+            with col2:
+                unit_number = st.text_input("Unit Number")
+                material = st.text_input("Material")
+                unit = st.selectbox("Unit", ["SF", "SY", "LF", "Unit"])
+            
+            with col3:
+                quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
+                price = st.number_input("Price per Unit", min_value=0.0, step=0.1)
+                total = quantity * price
+                st.write(f"Total: ${total:,.2f}")
+            
+            submitted = st.form_submit_button("Submit Bid")
+            
+            if submitted:
+                try:
+                    # Prepare row data
+                    row_data = [
+                        date.strftime("%Y-%m-%d"),
+                        contractor,
+                        location,
+                        unit_number,
+                        material,
+                        unit,
+                        quantity,
+                        price,
+                        total
+                    ]
+                    
+                    # Save to Google Sheet
+                    worksheet.append_row(row_data)
+                    st.success("Bid successfully added!")
+                    time.sleep(0.5)
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"Error adding bid: {str(e)}")
+        
+        # Display bid history
+        st.subheader("Bid History")
         bids = get_recent_bids(worksheet)
         
         if bids:
@@ -920,23 +968,24 @@ def display_bid_history(worksheet):
             with col2:
                 st.metric("Total Value", f"${total_value:,.2f}")
             
-            # Display bids in reverse chronological order
-            st.subheader("Bid Details")
-            for bid in reversed(bids):
-                with st.expander(f"📋 {bid['Date']} - {bid['Contractor']}"):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write("**Location Details:**")
-                        st.write(f"Location: {bid.get('Location', 'N/A')}")
-                        st.write(f"Unit Number: {bid.get('Unit Number', 'N/A')}")
-                        
-                    with col2:
-                        st.write("**Bid Details:**")
-                        st.write(f"Material: {bid['Material']}")
-                        st.write(f"Quantity: {bid['Quantity']} {bid['Unit']}")
-                        st.write(f"Price: ${bid['Price']:.2f}/unit")
-                        st.write(f"Total: ${bid['Total']:,.2f}")
+            # Convert bids to DataFrame for table display
+            df = pd.DataFrame(bids)
+            df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%Y-%m-%d')
+            df['Price'] = df['Price'].map('${:,.2f}'.format)
+            df['Total'] = df['Total'].map('${:,.2f}'.format)
+            df['Quantity'] = df['Quantity'].map('{:,.1f}'.format)
+            
+            # Reorder columns for display
+            columns = ['Date', 'Contractor', 'Location', 'Unit Number', 
+                      'Material', 'Quantity', 'Unit', 'Price', 'Total']
+            df = df[columns]
+            
+            # Display as table
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True
+            )
         else:
             st.warning("No bids found in the sheet")
             

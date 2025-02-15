@@ -165,47 +165,66 @@ class Database:
     def add_project_location(self, project_name, location_data):
         """Add a new location to a project"""
         try:
-            # Check if location already exists
-            if self.location_exists(project_name, location_data['address']):
-                print(f"Location {location_data['address']} already exists for project {project_name}")
-                return False
-
-            # Validate project exists
-            self.cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,))
-            if not self.cursor.fetchone():
-                print(f"Project {project_name} does not exist")
-                return False
-
-            # Print debug info
-            print(f"Adding location: {location_data}")
-            
-            # Ensure all required fields exist
-            location_data.setdefault('status', 'Not Started')
-            location_data.setdefault('notes', '')
-            location_data.setdefault('checklist', {})
-            location_data.setdefault('date_added', datetime.now().strftime("%Y-%m-%d"))
-
-            # Insert location
-            self.cursor.execute("""
-                INSERT OR REPLACE INTO project_locations 
-                (project_name, address, status, coordinates, notes, checklist, date_added)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                project_name,
-                location_data['address'],
-                location_data['status'],
-                json.dumps(location_data['coordinates']),
-                location_data['notes'],
-                json.dumps(location_data['checklist']),
-                location_data['date_added']
-            ))
-            self.conn.commit()
-            print(f"Successfully added location to database")
-            return True
-        except Exception as e:
-            print(f"Detailed error adding project location: {str(e)}")
+            # Print incoming data for debugging
+            print("\nDEBUG: Starting add_project_location")
             print(f"Project name: {project_name}")
             print(f"Location data: {location_data}")
+
+            # Validate project exists
+            self.cursor.execute("SELECT name FROM projects WHERE name = ?", (project_name,))
+            project = self.cursor.fetchone()
+            if not project:
+                print(f"ERROR: Project {project_name} does not exist in database")
+                return False
+            print(f"DEBUG: Project found: {project[0]}")
+
+            # Ensure all required fields exist and are properly formatted
+            try:
+                formatted_data = {
+                    'address': str(location_data['address']),
+                    'status': str(location_data.get('status', 'Not Started')),
+                    'coordinates': json.dumps(location_data['coordinates']),
+                    'notes': str(location_data.get('notes', '')),
+                    'checklist': json.dumps(location_data.get('checklist', {})),
+                    'date_added': str(location_data.get('date_added', datetime.now().strftime("%Y-%m-%d")))
+                }
+                print("DEBUG: Data formatted successfully")
+            except Exception as e:
+                print(f"ERROR: Failed to format data: {str(e)}")
+                return False
+
+            # Print SQL query for debugging
+            query = """
+                INSERT INTO project_locations 
+                (project_name, address, status, coordinates, notes, checklist, date_added)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """
+            params = (
+                project_name,
+                formatted_data['address'],
+                formatted_data['status'],
+                formatted_data['coordinates'],
+                formatted_data['notes'],
+                formatted_data['checklist'],
+                formatted_data['date_added']
+            )
+            print(f"DEBUG: Query: {query}")
+            print(f"DEBUG: Parameters: {params}")
+
+            # Execute the insert
+            self.cursor.execute(query, params)
+            self.conn.commit()
+            print("DEBUG: Location added successfully")
+            return True
+
+        except sqlite3.IntegrityError as e:
+            print(f"ERROR: Database integrity error: {str(e)}")
+            if "UNIQUE constraint failed" in str(e):
+                print("ERROR: This location already exists for this project")
+            return False
+        except Exception as e:
+            print(f"ERROR: Unexpected error: {str(e)}")
+            print(f"ERROR: Error type: {type(e)}")
             return False
 
     def update_project_location_status(self, project_name, location_address, new_status):

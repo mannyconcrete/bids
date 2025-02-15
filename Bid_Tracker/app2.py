@@ -874,33 +874,42 @@ def format_sheet_name(name):
 def get_recent_bids(worksheet):
     """Get recent bids from Google Sheet"""
     try:
-        # Get all data from the sheet
-        data = worksheet.get_all_records()
+        # Get all data including headers
+        all_data = worksheet.get_all_values()
         
-        # Debug: Print raw data
-        st.write("Debug - Raw Data:")
-        st.write(f"Number of records: {len(data)}")
-        if data:
-            st.write("First record example:")
-            st.write(data[0])
+        # Print the first few rows to see structure
+        st.write("Sheet Headers:", all_data[0])
+        st.write("First Row:", all_data[1] if len(all_data) > 1 else "No data")
         
-        # Convert to DataFrame
-        df = pd.DataFrame(data)
+        # Get column names from first row
+        headers = all_data[0]
         
-        # Debug: Print unique project names
-        st.write("Debug - Unique Project Names:")
-        st.write(df['Project Name'].unique())
+        # Convert to records
+        records = []
+        for row in all_data[1:]:  # Skip header row
+            record = {}
+            for i, value in enumerate(row):
+                if i < len(headers):  # Ensure we have a header for this column
+                    record[headers[i]] = value
+            records.append(record)
+        
+        # Print all project names to see what we're working with
+        project_names = set(record['Project Name'] for record in records)
+        st.write("All Project Names in Sheet:", project_names)
         
         # Filter for Misc Concrete Improvements
-        misc_concrete_bids = df[df['Project Name'].str.contains("Misc Concrete Improvements", case=False, na=False)]
+        misc_bids = [
+            record for record in records 
+            if "misc concrete improvements" in record['Project Name'].lower()
+        ]
         
-        # Debug: Print filtered data
-        st.write("Debug - Filtered Data:")
-        st.write(f"Number of Misc Concrete bids: {len(misc_concrete_bids)}")
+        st.write(f"Found {len(misc_bids)} Misc Concrete bids")
         
-        return misc_concrete_bids.to_dict('records')
+        return misc_bids
+        
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
+        st.write("Exception details:", str(e))
         return []
 
 def display_bid_history(worksheet):
@@ -925,6 +934,7 @@ def display_bid_history(worksheet):
             
     except Exception as e:
         st.error(f"Error displaying bid history: {str(e)}")
+        st.write("Exception details:", str(e))
 
 def main():
     st.title("📊 Bid Tracker")

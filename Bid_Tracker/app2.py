@@ -874,48 +874,83 @@ def format_sheet_name(name):
 def get_recent_bids(worksheet):
     """Get recent bids from Google Sheet"""
     try:
+        # Debug: Print worksheet info
+        st.write("Debug - Worksheet Info:")
+        st.write(f"Worksheet Title: {worksheet.title}")
+        st.write(f"Worksheet ID: {worksheet.id}")
+        
         # Get raw data from worksheet
+        st.write("Attempting to get all values...")
         all_values = worksheet.get_all_values()
+        st.write(f"Retrieved {len(all_values)} rows of data")
+        
         if not all_values:
+            st.warning("No data found in worksheet")
             return []
             
         # Get headers and data
         headers = all_values[0]
         data = all_values[1:]
         
+        st.write("Debug - Headers:")
+        st.write(headers)
+        st.write(f"Number of columns: {len(headers)}")
+        
         # Create list of dictionaries
         bids = []
-        for row in data:
-            bid = {}
-            for i, value in enumerate(row):
-                if i < len(headers):
-                    bid[headers[i]] = value
-            if bid:  # Only add non-empty bids
-                bids.append(bid)
+        for row_index, row in enumerate(data, start=2):  # start=2 to account for header row
+            try:
+                bid = {}
+                for i, value in enumerate(row):
+                    if i < len(headers):
+                        bid[headers[i]] = value
+                if bid:  # Only add non-empty bids
+                    bids.append(bid)
+            except Exception as e:
+                st.error(f"Error processing row {row_index}: {str(e)}")
+                st.write(f"Row data: {row}")
+        
+        st.write(f"Processed {len(bids)} total bids")
+        
+        # Debug: Show all project names
+        project_names = set(bid.get('Project Name', '') for bid in bids)
+        st.write("Debug - All Project Names:")
+        st.write(project_names)
         
         # Filter for Misc Concrete Improvements
         misc_bids = []
-        for bid in bids:
-            project_name = bid.get('Project Name', '').lower()
-            if 'misc' in project_name and 'concrete' in project_name:
-                # Clean numeric values
-                try:
-                    bid['Price'] = float(str(bid['Price']).replace('$', '').replace(',', ''))
-                    bid['Total'] = float(str(bid['Total']).replace('$', '').replace(',', ''))
-                    bid['Quantity'] = float(str(bid['Quantity']).replace(',', ''))
-                    misc_bids.append(bid)
-                except (ValueError, KeyError):
-                    continue
+        for bid_index, bid in enumerate(bids):
+            try:
+                project_name = bid.get('Project Name', '').lower()
+                st.write(f"Checking project: {project_name}")
+                
+                if 'misc' in project_name and 'concrete' in project_name:
+                    # Clean numeric values
+                    try:
+                        bid['Price'] = float(str(bid['Price']).replace('$', '').replace(',', ''))
+                        bid['Total'] = float(str(bid['Total']).replace('$', '').replace(',', ''))
+                        bid['Quantity'] = float(str(bid['Quantity']).replace(',', ''))
+                        misc_bids.append(bid)
+                    except (ValueError, KeyError) as e:
+                        st.error(f"Error processing numeric values in bid {bid_index}: {str(e)}")
+                        st.write(f"Bid data: {bid}")
+            except Exception as e:
+                st.error(f"Error processing bid {bid_index}: {str(e)}")
+                st.write(f"Bid data: {bid}")
                     
+        st.write(f"Found {len(misc_bids)} Misc Concrete bids")
         return misc_bids
         
     except Exception as e:
         st.error(f"Error loading bid history: {str(e)}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
         return []
 
 def display_bid_history(worksheet):
     """Display bid history"""
     try:
+        st.write("Starting bid history display...")
         bids = get_recent_bids(worksheet)
         
         if bids:
@@ -951,6 +986,8 @@ def display_bid_history(worksheet):
             
     except Exception as e:
         st.error(f"Error displaying bid history: {str(e)}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
 
 def main():
     st.title("📊 Bid Tracker")

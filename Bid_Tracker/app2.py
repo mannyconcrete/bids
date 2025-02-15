@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import os
 import time
 import json
+import folium
+from streamlit_folium import st_folium
 
 # Initialize database
 db = Database()
@@ -817,11 +819,9 @@ def project_status_dashboard(spreadsheet):
     st.markdown("## 📍 Project Status & Location Tracking")
     
     try:
-        import folium
         from folium import plugins
         from geopy.geocoders import Nominatim
         from geopy.exc import GeocoderTimedOut
-        from streamlit_folium import folium_static
     except ImportError:
         st.error("Please install required packages: pip install folium streamlit-folium geopy")
         return
@@ -936,27 +936,18 @@ def project_status_dashboard(spreadsheet):
             
             # Add locations to map
             markers = []
-            for idx, location in enumerate(st.session_state.project_locations[project_key]):
+            for location in st.session_state.project_locations[project_key]:
                 try:
                     if 'coordinates' in location:
                         # Get stage info
-                        current_stage = location.get('status', 'Marked')
+                        current_stage = location.get('status', 'Not Started')
                         stage_info = PROJECT_STAGES[current_stage]
                         
                         # Create popup content
-                        stages_html = ""
-                        for stage, info in PROJECT_STAGES.items():
-                            check = "✅" if info['order'] <= PROJECT_STAGES[current_stage]['order'] else "⬜"
-                            stages_html += f"<p>{check} {info['icon']} {stage}</p>"
-                        
                         popup_html = f"""
                         <div style='width: 200px'>
                             <h4>{location['address']}</h4>
                             <p><b>Current Stage:</b> {stage_info['icon']} {current_stage}</p>
-                            <div style='margin: 10px 0;'>
-                                <b>Progress:</b>
-                                {stages_html}
-                            </div>
                             <p><b>Notes:</b> {location.get('notes', 'N/A')}</p>
                             <p><b>Added:</b> {location.get('date_added', 'N/A')}</p>
                         </div>
@@ -978,8 +969,8 @@ def project_status_dashboard(spreadsheet):
             if markers:
                 m.fit_bounds(markers)
             
-            # Display map
-            folium_static(m, width=800)
+            # Display map using st_folium instead of folium_static
+            st_folium(m, width=800, height=400)
         
         with map_col2:
             st.markdown("### Stage Legend")

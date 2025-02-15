@@ -15,9 +15,10 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     project_name TEXT,
                     address TEXT,
-                    status TEXT,
+                    status TEXT DEFAULT 'Not Started',
                     coordinates TEXT,
                     notes TEXT,
+                    checklist TEXT,
                     date_added TEXT,
                     UNIQUE(project_name, address)
                 )
@@ -129,7 +130,7 @@ class Database:
         """Get all locations for a project"""
         try:
             self.cursor.execute("""
-                SELECT address, status, coordinates, notes, date_added 
+                SELECT address, status, coordinates, notes, checklist, date_added 
                 FROM project_locations 
                 WHERE project_name = ?
             """, (project_name,))
@@ -138,10 +139,11 @@ class Database:
             # Convert to list of dictionaries
             return [{
                 'address': loc[0],
-                'status': loc[1],
+                'status': loc[1] or 'Not Started',  # Ensure status is never None
                 'coordinates': json.loads(loc[2]) if loc[2] else None,
-                'notes': loc[3],
-                'date_added': loc[4]
+                'notes': loc[3] or '',
+                'checklist': json.loads(loc[4]) if loc[4] else {},
+                'date_added': loc[5]
             } for loc in locations]
         except Exception as e:
             print(f"Error getting project locations: {str(e)}")
@@ -152,14 +154,15 @@ class Database:
         try:
             self.cursor.execute("""
                 INSERT INTO project_locations 
-                (project_name, address, status, coordinates, notes, date_added)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (project_name, address, status, coordinates, notes, checklist, date_added)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 project_name,
                 location_data['address'],
-                location_data['status'],
+                location_data.get('status', 'Not Started'),
                 json.dumps(location_data['coordinates']),
                 location_data.get('notes', ''),
+                json.dumps(location_data.get('checklist', {})),
                 location_data.get('date_added', datetime.now().strftime("%Y-%m-%d"))
             ))
             self.conn.commit()

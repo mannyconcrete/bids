@@ -35,6 +35,20 @@ if 'project_locations' not in st.session_state:
 if 'project_checklists' not in st.session_state:
     st.session_state.project_checklists = {}
 
+# Initialize all session state variables at the start
+if 'saved_projects' not in st.session_state:
+    st.session_state.saved_projects = {}
+if 'saved_contractors' not in st.session_state:
+    st.session_state.saved_contractors = set()
+if 'client_database' not in st.session_state:
+    st.session_state.client_database = {}
+if 'bid_templates' not in st.session_state:
+    st.session_state.bid_templates = {}
+if 'project_milestones' not in st.session_state:
+    st.session_state.project_milestones = {}
+if 'communication_log' not in st.session_state:
+    st.session_state.communication_log = {}
+
 # Set page config for mobile
 st.set_page_config(
     page_title="Bid Tracker",
@@ -847,6 +861,47 @@ def project_status_dashboard(spreadsheet):
             progress = completed / total_locations
             st.progress(progress)
             st.markdown(f"**Overall Progress:** {progress * 100:.1f}%")
+
+def format_sheet_name(name):
+    """Format string to be valid sheet name"""
+    # Remove invalid characters
+    invalid_chars = '[]:*?/\\'
+    for char in invalid_chars:
+        name = str(name).replace(char, '')
+    # Truncate to 31 characters (Google Sheets limit)
+    return name[:31]
+
+def get_recent_bids(worksheet, project_name=None):
+    """Get recent bids from Google Sheet with totals"""
+    try:
+        data = worksheet.get_all_records()
+        if not data:
+            return [], 0
+        
+        df = pd.DataFrame(data)
+        if project_name:
+            df = df[df['Project Name'] == project_name]
+        
+        # Calculate total value of all bids
+        total_value = df['Total'].sum()
+        
+        # Save contractors and projects to session state
+        st.session_state.saved_contractors.update(df['Contractor'].unique())
+        for _, row in df.iterrows():
+            project_name = format_sheet_name(str(row['Project Name']))
+            if project_name not in st.session_state.saved_projects:
+                st.session_state.saved_projects[project_name] = {
+                    'owner': row['Project Owner'],
+                    'location': row['Location'],
+                    'status': 'Not Started',
+                    'start_date': row['Date'],
+                    'last_updated': datetime.now().strftime('%Y-%m-%d')
+                }
+        
+        return df.to_dict('records')[-10:], total_value  # Return last 10 bids and total
+    except Exception as e:
+        st.error(f"Error loading bid history: {str(e)}")
+        return [], 0
 
 def main():
     st.title("📊 Bid Tracker")

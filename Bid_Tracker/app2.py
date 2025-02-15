@@ -868,6 +868,11 @@ def project_status_dashboard(spreadsheet):
         
         if add_location and new_location:
             try:
+                # Check if location already exists
+                if db.location_exists(selected_project, new_location):
+                    st.warning(f"Location '{new_location}' already exists for this project. Please use a different address.")
+                    return
+
                 geolocator = Nominatim(user_agent="bid_tracker")
                 geo_location = geolocator.geocode(new_location)
                 if geo_location:
@@ -890,14 +895,16 @@ def project_status_dashboard(spreadsheet):
                     
                     # Save to database
                     if db.add_project_location(selected_project, location_data):
+                        if project_key not in st.session_state.project_locations:
+                            st.session_state.project_locations[project_key] = []
                         st.session_state.project_locations[project_key].append(location_data)
                         st.success(f"Added location: {new_location}")
                         time.sleep(0.5)  # Give the database time to complete the transaction
                         st.rerun()
                     else:
-                        st.error("Failed to save location. Check if location already exists.")
+                        st.error("Failed to save location to database. Please try again.")
                 else:
-                    st.error("Could not find coordinates for this address")
+                    st.error("Could not find coordinates for this address. Please check the address and try again.")
             except Exception as e:
                 st.error(f"Error adding location: {str(e)}")
                 print(f"Detailed error: {str(e)}")
